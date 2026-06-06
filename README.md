@@ -1266,6 +1266,7 @@ VaultS3 is designed with security in mind:
 - **Content-MD5 validation** — Server-side integrity verification on PUT rejects corrupted uploads
 - **S3 Checksum API** — CRC32, CRC32C, SHA1, SHA256 checksums verified on upload and returned on download
 - **Conditional request handling** — `If-Match`/`If-None-Match` ETag checks prevent lost updates (412 Precondition Failed)
+- **Dependency hygiene** — Dashboard dependencies kept current against Dependabot advisories (latest: `react-router` 7.17.0 closing 6 alerts — turbo-stream RCE, RSC/Location XSS, `__manifest`/single-fetch DoS, protocol-relative open redirect)
 
 See [SECURITY.md](SECURITY.md) for vulnerability reporting policy and deployment best practices.
 
