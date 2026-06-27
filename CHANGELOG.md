@@ -6,18 +6,44 @@ semantic-ish versioning via git tags (`vMAJOR.MINOR.PATCH`).
 
 ## [Unreleased]
 
+### Fixed
+- **Tiering deadlock (data-availability bug):** the background tier scan called
+  `SetObjectTier` (a write transaction) from inside `IterateAllObjects` (a read
+  transaction), which deadlocks BoltDB — the scan would hang forever the first
+  time it tried to migrate any object to cold. `scan()` now collects candidates
+  inside the read txn and migrates them after it closes. Found by the new
+  tiering tests.
+
 ### Added
-- Fault-injection test coverage for the three data-durability subsystems that
-  previously had none:
+- Fault-injection / consensus test coverage for the data-durability subsystems
+  that previously had little or none:
   - **erasure** — Reed-Solomon encode/reconstruct, lost-disk reads, and the
-    background healer repairing degraded objects (0% → ~64% coverage).
-  - **cluster** — consistent-hash ring consistency/distribution and the
-    failure-detector healthy→suspect→down→recover state machine.
+    background healer repairing degraded objects (0% → ~64%).
+  - **cluster** — consistent-hash ring + failure-detector state machine, plus a
+    real multi-node **Raft consensus** harness (in-memory transport): leader
+    election, log replication, no-split-brain under network partition, and
+    membership changes (14.9% → 22.5%).
   - **replication** — vector-clock causality/merge and all three conflict
     resolution strategies (last-writer-wins, largest-object, site-preference).
-- `CONTRIBUTING.md` and `CHANGELOG.md`.
+  - **tiering** — hot↔cold migration, the stale-object scan, transparent read
+    with promotion-back, and round-trip integrity (0% → ~39%).
+  - **backup** — full vs incremental selection, restore round-trip byte-identity,
+    and local-target path-traversal guard (0% → ~48%).
+  - **fuse** — write/read/delete round-trip over an in-process S3 stub (no kernel
+    mount), block-cache LRU eviction, and metadata-cache TTL (0% → ~45%).
+- `docs/BENCHMARKS.md` — reproducible benchmark methodology (the `/speedtest`
+  endpoint, `warp` for comparative throughput, RSS measurement) + results template.
+- README **Production Readiness** section (stable vs. beta paths) and a
+  refreshed competitor comparison verified against June 2026 sources.
+- `CONTRIBUTING.md`, `CHANGELOG.md`, and GitHub issue/PR templates.
 
 ### Changed
+- `internal/cluster`: extracted a `newNodeWithDeps` seam so the Raft transport
+  and stores are injectable (enables the in-process consensus tests). The
+  production `NewNode` path is unchanged (TCP transport + BoltDB).
+- Competitor comparison table corrected: SeaweedFS now has a web admin UI and a
+  working FUSE mount; MinIO's Community console was removed (2025) and the
+  open-source repo archived (Feb 2026); added an "as of June 2026" qualifier.
 - Stopped tracking build artifacts and logs in git (`vaults3-cli`,
   `bin/vaults3-cli`, `access.log`, `test-results/`); added `*.log` and
   `test-results/` to `.gitignore`.

@@ -35,12 +35,6 @@ func NewNode(cfg ClusterConfig, metaStore *metadata.Store) (*Node, error) {
 		return nil, fmt.Errorf("cluster: create data dir: %w", err)
 	}
 
-	// Raft configuration
-	raftCfg := raft.DefaultConfig()
-	raftCfg.LocalID = raft.ServerID(cfg.NodeID)
-	raftCfg.SnapshotThreshold = uint64(cfg.SnapshotCount)
-	raftCfg.LogLevel = "WARN"
-
 	// Transport
 	bindAddr := fmt.Sprintf("%s:%d", cfg.BindAddr, cfg.RaftPort)
 	tcpAddr, err := net.ResolveTCPAddr("tcp", bindAddr)
@@ -66,11 +60,42 @@ func NewNode(cfg ClusterConfig, metaStore *metadata.Store) (*Node, error) {
 		return nil, fmt.Errorf("cluster: create snapshot store: %w", err)
 	}
 
-	// FSM
+	return newNodeWithDeps(cfg, metaStore, raftDeps{
+		transport: transport,
+		logStore:  logStore,
+		stable:    logStore,
+		snapshots: snapshotStore,
+	})
+}
+
+// raftDeps bundles the pluggable Raft backends. Production uses a TCP transport
+// with BoltDB-backed stores; tests inject in-memory implementations so a full
+// multi-node cluster — including network partitions — can run in one process.
+type raftDeps struct {
+	transport raft.Transport
+	logStore  raft.LogStore
+	stable    raft.StableStore
+	snapshots raft.SnapshotStore
+}
+
+// newNodeWithDeps builds and starts a Raft node from explicit dependencies.
+// It is shared by the production constructor (NewNode) and by tests.
+func newNodeWithDeps(cfg ClusterConfig, metaStore *metadata.Store, deps raftDeps) (*Node, error) {
+	applyDefaults(&cfg)
+
+	if cfg.NodeID == "" {
+		return nil, fmt.Errorf("cluster: node_id is required")
+	}
+
+	// Raft configuration
+	raftCfg := raft.DefaultConfig()
+	raftCfg.LocalID = raft.ServerID(cfg.NodeID)
+	raftCfg.SnapshotThreshold = uint64(cfg.SnapshotCount)
+	raftCfg.LogLevel = "WARN"
+
 	fsm := NewFSM(metaStore)
 
-	// Create Raft instance
-	r, err := raft.NewRaft(raftCfg, fsm, logStore, logStore, snapshotStore, transport)
+	r, err := raft.NewRaft(raftCfg, fsm, deps.logStore, deps.stable, deps.snapshots, deps.transport)
 	if err != nil {
 		return nil, fmt.Errorf("cluster: create raft: %w", err)
 	}
@@ -87,7 +112,7 @@ func NewNode(cfg ClusterConfig, metaStore *metadata.Store) (*Node, error) {
 		servers := []raft.Server{
 			{
 				ID:      raft.ServerID(cfg.NodeID),
-				Address: transport.LocalAddr(),
+				Address: deps.transport.LocalAddr(),
 			},
 		}
 		future := r.BootstrapCluster(raft.Configuration{Servers: servers})
@@ -97,7 +122,7 @@ func NewNode(cfg ClusterConfig, metaStore *metadata.Store) (*Node, error) {
 				return nil, fmt.Errorf("cluster: bootstrap: %w", err)
 			}
 		}
-		slog.Info("cluster: bootstrapped", "node_id", cfg.NodeID, "addr", bindAddr)
+		slog.Info("cluster: bootstrapped", "node_id", cfg.NodeID, "addr", deps.transport.LocalAddr())
 	}
 
 	// Join peers if configured
@@ -116,7 +141,7 @@ func NewNode(cfg ClusterConfig, metaStore *metadata.Store) (*Node, error) {
 		}
 	}
 
-	slog.Info("cluster: node started", "node_id", cfg.NodeID, "bind", bindAddr, "peers", len(cfg.Peers))
+	slog.Info("cluster: node started", "node_id", cfg.NodeID, "peers", len(cfg.Peers))
 	return node, nil
 }
 

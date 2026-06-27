@@ -37,30 +37,47 @@
 
 ## Why VaultS3?
 
-**MinIO** needs 512MB+ RAM and locks features like per-bucket rate limiting behind a paid enterprise tier. **SeaweedFS** requires multiple components with no web UI. **Garage** lacks versioning, WORM, and notifications entirely.
+**MinIO** stripped the admin console from its Community Edition in 2025 and archived the open-source project in early 2026 — full management now lives in the paid AIStor tier. **SeaweedFS** is capable but spreads across multiple components (master / volume / filer), and its web admin UI is a recent addition. **Garage** still has no object versioning, WORM/object-lock, or event notifications.
 
-**VaultS3 gives you everything in one binary under 80MB RAM:**
+**VaultS3 keeps everything in one self-contained binary under 80 MB RAM:**
 
 | | VaultS3 | MinIO | SeaweedFS | Garage |
 |---|:---:|:---:|:---:|:---:|
 | RAM (small deploy) | **<80 MB** | 512 MB+ | 50-200 MB | 50-150 MB |
 | Single binary | **Yes** | Yes | No | Yes |
-| Web dashboard | **Built-in** | Built-in | No | No |
+| Web dashboard | **Built-in** | Paid¹ | Yes | No |
+| Open-source maintained | **Yes** | Archived¹ | Yes | Yes |
 | Raft clustering | **Yes** | Yes | Yes | Yes |
 | Erasure coding | **Yes** | Yes | Yes | No |
 | Active-active replication | **Yes** | Yes | No | No |
-| FUSE mount | **Built-in** | No | Buggy | No |
+| FUSE mount | **Built-in** | No | Yes | No |
 | Full-text search | **Yes** | No | No | No |
 | Version diff/tags | **Yes** | No | No | No |
 | Lambda triggers | **Yes** | No | No | No |
 | Virus scanning | **Yes** | No | No | No |
 | Backup scheduler | **Yes** | No | No | No |
 
+> ¹ MinIO removed the admin console from its Community Edition in 2025 and archived the open-source repository in February 2026; full management now requires the paid AIStor product. This comparison reflects publicly available information as of **June 2026** — please open an issue if a cell is out of date.
+
 ```bash
 make build && ./vaults3
 # Server at http://localhost:9000
 # Dashboard at http://localhost:9000/dashboard/
 ```
+
+## Production Readiness
+
+VaultS3 is honest about what's battle-tested versus still maturing. Pick the lane that matches your risk tolerance:
+
+| Path | Maturity | Notes |
+|---|---|---|
+| **Single-node** (S3 API, versioning, IAM, dashboard) | ✅ Stable | The default deployment. Broad test coverage; runs in production today. |
+| **Erasure coding** (single-node, multi-disk) | ✅ Stable | Reed-Solomon encode/reconstruct and the background healer have fault-injection tests (lose disks → reconstruct → heal). |
+| **Tiering & backup** | ✅ Stable | Hot/cold migration, transparent promotion, and full/incremental backup are tested. Restore is a manual file copy. |
+| **Multi-node Raft clustering** | 🟡 Beta | Consensus core (election, log replication, no-split-brain under partition, membership changes) is tested with an in-process multi-node harness. Operationally newer — validate against your workload before trusting it as the only copy of critical data. |
+| **Active-active replication** | 🟡 Beta | Vector-clock conflict resolution is unit-tested; the cross-site sync worker is less exercised in the wild. |
+
+**Recommendation:** run single-node (optionally with erasure coding across local disks) for production data you care about, and treat clustering/active-active as advanced opt-in features you validate first. Always keep an independent backup. See the **[Scaling & Operations Guide](docs/SCALING.md)** for redundancy layering and recovery runbooks, and the **[Benchmarks guide](docs/BENCHMARKS.md)** for a reproducible way to measure throughput and RAM on your own hardware.
 
 ## Features
 

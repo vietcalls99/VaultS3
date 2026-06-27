@@ -44,7 +44,13 @@ func (m *Manager) Run(ctx context.Context) {
 
 func (m *Manager) scan() {
 	cutoff := time.Now().Unix() - int64(m.migrateAfterDays*86400)
-	migrated := 0
+
+	// Collect migration candidates inside the read transaction, but perform the
+	// actual migration afterwards: migrateToCol writes via SetObjectTier (a write
+	// transaction), and bbolt deadlocks if a write txn is opened while the read
+	// txn from IterateAllObjects is still in progress on the same goroutine.
+	type objRef struct{ bucket, key string }
+	var candidates []objRef
 
 	m.store.IterateAllObjects(func(bucket, key string, meta metadata.ObjectMeta) bool {
 		if meta.DeleteMarker {
@@ -66,13 +72,18 @@ func (m *Manager) scan() {
 			return true
 		}
 
-		if err := m.migrateToCol(bucket, key); err != nil {
-			slog.Error("tiering failed to migrate to cold", "bucket", bucket, "key", key, "error", err)
+		candidates = append(candidates, objRef{bucket: bucket, key: key})
+		return true
+	})
+
+	migrated := 0
+	for _, c := range candidates {
+		if err := m.migrateToCol(c.bucket, c.key); err != nil {
+			slog.Error("tiering failed to migrate to cold", "bucket", c.bucket, "key", c.key, "error", err)
 		} else {
 			migrated++
 		}
-		return true
-	})
+	}
 
 	if migrated > 0 {
 		slog.Info("tiering migration complete", "objects", migrated)
