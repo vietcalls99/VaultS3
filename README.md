@@ -1286,7 +1286,9 @@ VaultS3/
 │   ├── metrics/               — Prometheus-compatible metrics collector
 │   ├── iam/                   — IAM policy engine, identity, IP access control, conditions, LDAP, external auth, STS AssumeRole
 │   ├── notify/                — Event notification dispatcher (webhook, Kafka, NATS, Redis, AMQP, PostgreSQL, Elasticsearch)
-│   ├── replication/           — Async replication worker (SigV4 signer, queue processor, per-bucket rules)
+│   ├── replication/           — Async + active-active replication (SigV4 signer, queue processor, vector-clock conflict resolution)
+│   ├── erasure/               — Reed-Solomon erasure coding + background healer (multi-disk shard placement)
+│   ├── cluster/               — Raft metadata, consistent-hash ring, failure detector, failover proxy, rebalancer
 │   ├── search/                — In-memory full-text search index
 │   ├── scanner/               — Webhook virus scanning with quarantine
 │   ├── ratelimit/             — Token bucket rate limiter (per IP, per key, per bucket bandwidth)
@@ -1318,8 +1320,23 @@ VaultS3/
 ## Requirements
 
 - Go 1.25+ (build)
-- Node.js 18+ (dashboard build only)
+- Node.js 20.19+ (dashboard build only — Vite 8 / Rolldown)
 - No runtime dependencies
+
+## Contributing
+
+Contributions are welcome! See **[CONTRIBUTING.md](CONTRIBUTING.md)** for build,
+test, and PR guidelines, and **[CHANGELOG.md](CHANGELOG.md)** for release notes.
+
+```bash
+make build                      # React dashboard + server + CLI binaries
+go test ./...                   # run the Go test suite
+go test -race ./internal/erasure/ ./internal/cluster/ ./internal/replication/
+```
+
+The data-durability subsystems (`erasure`, `cluster`, `replication`) carry
+fault-injection tests — corrupt a shard and heal it, lose a node and re-route,
+partition two sites and resolve the conflict. New logic there should keep that bar.
 
 ## Roadmap
 

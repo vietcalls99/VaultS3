@@ -8,6 +8,10 @@ bin/
 /data/
 /metadata/
 
+# Logs and test artifacts
+*.log
+test-results/
+
 # Go
 vendor/
 
