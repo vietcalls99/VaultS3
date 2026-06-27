@@ -37,6 +37,7 @@ import (
 	"github.com/Kodiqa-Solutions/VaultS3/internal/search"
 	"github.com/Kodiqa-Solutions/VaultS3/internal/storage"
 	"github.com/Kodiqa-Solutions/VaultS3/internal/tiering"
+	"github.com/Kodiqa-Solutions/VaultS3/internal/vector"
 )
 
 type Server struct {
@@ -51,6 +52,7 @@ type Server struct {
 	replWorker      *replication.Worker
 	biDirWorker     *replication.BiDirectionalWorker
 	searchIndex     *search.Index
+	vectorMgr       *vector.Manager
 	scanWorker      *scanner.Scanner
 	tieringMgr      *tiering.Manager
 	backupSched     *backup.Scheduler
@@ -426,13 +428,32 @@ func New(cfg *config.Config) (*Server, error) {
 	if err := searchIdx.Build(); err != nil {
 		slog.Warn("search index build failed", "error", err)
 	}
+
+	// Optional vector / semantic-search add-on
+	var vectorMgr *vector.Manager
+	if cfg.Vector.Enabled && cfg.Vector.EmbeddingURL != "" {
+		emb := vector.NewOpenAICompatEmbedder(cfg.Vector.EmbeddingURL, cfg.Vector.APIKey, cfg.Vector.Model, cfg.Vector.TimeoutSecs)
+		vectorMgr = vector.NewManager(emb, vector.NewIndex(cfg.Vector.Dimensions, cfg.Vector.MaxVectors), cfg.Vector.PersistPath)
+		slog.Info("vector search enabled", "model", cfg.Vector.Model, "auto_index", cfg.Vector.AutoIndex, "vectors", vectorMgr.Count())
+	}
+
 	s3h.SetSearchUpdateFunc(func(eventType, bucket, key string) {
 		if eventType == "delete" {
 			searchIdx.Remove(bucket, key)
-		} else {
-			if meta, err := store.GetObjectMeta(bucket, key); err == nil {
-				searchIdx.Update(bucket, key, *meta)
+			if vectorMgr != nil {
+				vectorMgr.Remove(bucket, key)
 			}
+			return
+		}
+		meta, err := store.GetObjectMeta(bucket, key)
+		if err != nil {
+			return
+		}
+		searchIdx.Update(bucket, key, *meta)
+		// Auto-index for vector search runs off the request path (embedding is a
+		// network call) and is strictly best-effort.
+		if vectorMgr != nil && cfg.Vector.AutoIndex && shouldVectorIndex(cfg.Vector, key, meta) {
+			go indexObjectVector(vectorMgr, engine, bucket, key, cfg.Vector)
 		}
 	})
 
@@ -509,6 +530,7 @@ func New(cfg *config.Config) (*Server, error) {
 		replWorker:      replWorker,
 		biDirWorker:     biDirWorker,
 		searchIndex:     searchIdx,
+		vectorMgr:       vectorMgr,
 		scanWorker:      scanWorker,
 		tieringMgr:      tieringMgr,
 		backupSched:     backupSched,
@@ -534,6 +556,19 @@ func (s *Server) Run() error {
 	apiHandler := api.NewAPIHandler(s.store, s.engine, s.metrics, s.cfg, s.activity)
 	apiHandler.SetS3Authenticator(s.s3Auth)
 	apiHandler.SetSearchIndex(s.searchIndex)
+	if s.vectorMgr != nil {
+		apiHandler.SetVectorManager(s.vectorMgr)
+		// Persist the vector index periodically so embeddings survive restarts.
+		go func() {
+			t := time.NewTicker(2 * time.Minute)
+			defer t.Stop()
+			for range t.C {
+				if err := s.vectorMgr.Save(); err != nil {
+					slog.Warn("vector: periodic save failed", "error", err)
+				}
+			}
+		}()
+	}
 	if s.scanWorker != nil {
 		apiHandler.SetScanner(s.scanWorker)
 	}

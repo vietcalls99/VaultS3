@@ -7,6 +7,24 @@ semantic-ish versioning via git tags (`vMAJOR.MINOR.PATCH`).
 ## [Unreleased]
 
 ### Added
+- **Semantic / vector search (optional add-on)** — a new `internal/vector` package
+  brings RAG-style retrieval into the single binary, with no external vector
+  database. A dependency-free cosine-kNN index (persisted across restarts) is fed
+  by any OpenAI-compatible `/v1/embeddings` endpoint (OpenAI, Ollama, llama.cpp,
+  LM Studio, vLLM…), so users pick their own (often local, private) embedding
+  model. Text objects are auto-embedded on upload (best-effort, off the request
+  path); query via `POST /api/v1/vectors/query`, status via
+  `GET /api/v1/vectors/status`. Configure under `vector:` in vaults3.yaml
+  (disabled by default).
+
+### Fixed
+- **Conditional writes are now atomic.** `If-Match` / `If-None-Match` on PutObject
+  previously checked the precondition and wrote in separate steps (a TOCTOU race):
+  concurrent `If-None-Match: *` creates to the same key could all succeed,
+  breaking the compare-and-swap guarantee that makes conditional writes usable for
+  lock files and Iceberg-style commits. Writes carrying a conditional header now
+  hold a per-key striped lock across the check-and-write, so exactly one create
+  wins. Regression test spins up 16 concurrent creators and asserts 1×200 + 15×412.
 - Test coverage for the remaining seven previously-untested packages, so **every
   `internal/` package now has tests**: `metrics` (counters + Prometheus output),
   `lambda` (event/filter matching + key templating), `batch` (bulk delete/copy

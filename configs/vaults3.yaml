@@ -131,6 +131,22 @@ memory:
   max_search_entries: 50000    # max objects in search index (LRU eviction)
   go_mem_limit_mb: 0           # Go runtime memory limit (0 = unlimited)
 
+# Vector / semantic search (optional add-on). Embeds object text via any
+# OpenAI-compatible /v1/embeddings endpoint (OpenAI, Ollama, llama.cpp, LM Studio,
+# vLLM, ...) and serves similarity search + RAG retrieval from POST /api/v1/vectors/query.
+vector:
+  enabled: false
+  embedding_url: "http://localhost:11434/v1/embeddings"  # e.g. Ollama
+  api_key: ""                  # leave empty for local servers
+  model: "nomic-embed-text"
+  dimensions: 0                # 0 = pin to the model's output on first vector
+  max_vectors: 100000          # cap on indexed vectors (FIFO eviction beyond)
+  auto_index: true             # embed text objects automatically on upload
+  index_prefixes: []           # if set, only auto-index keys under these prefixes
+  max_object_bytes: 1048576    # skip auto-indexing objects larger than this (1MB)
+  persist_path: "./data/vectors.gob"  # survive restarts (embeddings are costly)
+  timeout_secs: 30
+
 # Erasure coding (optional, works with or without clustering)
 erasure:
   enabled: false

@@ -170,7 +170,14 @@ func (h *ObjectHandler) PutObject(w http.ResponseWriter, r *http.Request, bucket
 		return
 	}
 
-	// Conditional PUT: check If-Match / If-None-Match
+	// Conditional PUT: check If-Match / If-None-Match. When a conditional header
+	// is present, hold the per-key lock across the check and the subsequent write
+	// so the compare-and-swap is atomic — two concurrent `If-None-Match: *` PUTs
+	// to the same key must not both succeed.
+	if r.Header.Get("If-Match") != "" || r.Header.Get("If-None-Match") != "" {
+		unlock := lockObjectKey(bucket, key)
+		defer unlock()
+	}
 	if checkPutPreconditions(w, r, h.store, bucket, key) {
 		return
 	}

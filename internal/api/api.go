@@ -19,6 +19,7 @@ import (
 	"github.com/Kodiqa-Solutions/VaultS3/internal/search"
 	"github.com/Kodiqa-Solutions/VaultS3/internal/storage"
 	"github.com/Kodiqa-Solutions/VaultS3/internal/tiering"
+	"github.com/Kodiqa-Solutions/VaultS3/internal/vector"
 )
 
 // APIHandler serves the dashboard REST API at /api/v1/.
@@ -30,6 +31,7 @@ type APIHandler struct {
 	jwt              *JWTService
 	activity         *ActivityLog
 	searchIndex      *search.Index
+	vectorMgr        *vector.Manager
 	scanner          *scanner.Scanner
 	tieringMgr       *tiering.Manager
 	ecHealer         *erasure.Healer
@@ -57,6 +59,11 @@ func NewAPIHandler(store *metadata.Store, engine storage.Engine, mc *metrics.Col
 // SetSearchIndex sets the search index for the API handler.
 func (h *APIHandler) SetSearchIndex(idx *search.Index) {
 	h.searchIndex = idx
+}
+
+// SetVectorManager sets the vector / semantic-search manager.
+func (h *APIHandler) SetVectorManager(m *vector.Manager) {
+	h.vectorMgr = m
 }
 
 // SetOIDCValidator sets the OIDC validator for the API handler.
@@ -301,6 +308,12 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Operations: speedtest
 	case path == "/speedtest" && r.Method == http.MethodPost:
 		h.handleSpeedtest(w, r)
+
+	// Vector / semantic search
+	case path == "/vectors/query" && r.Method == http.MethodPost:
+		h.handleVectorQuery(w, r)
+	case path == "/vectors/status" && r.Method == http.MethodGet:
+		h.handleVectorStatus(w, r)
 
 	// Observability: real-time event streaming (SSE)
 	case path == "/events" && r.Method == http.MethodGet:

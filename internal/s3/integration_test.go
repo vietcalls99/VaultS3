@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -569,6 +570,128 @@ func TestIntegrationConditionalIfMatch(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusPreconditionFailed {
 		t.Errorf("If-Match mismatch: expected 412, got %d", resp.StatusCode)
+	}
+}
+
+// TestIntegrationConditionalPutIfNoneMatch: `If-None-Match: *` creates only when
+// the key is absent; a second such PUT fails with 412.
+func TestIntegrationConditionalPutIfNoneMatch(t *testing.T) {
+	ts := newIntegrationServer(t)
+	bucket := "cput-bucket"
+	key := "create-once.txt"
+
+	resp := doSigned(t, http.MethodPut, ts.URL+"/"+bucket, nil)
+	resp.Body.Close()
+
+	// First conditional create succeeds.
+	resp = doSignedWithHeaders(t, http.MethodPut, ts.URL+"/"+bucket+"/"+key, []byte("v1"), map[string]string{
+		"If-None-Match": "*",
+	})
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("first If-None-Match:* PUT: expected 200, got %d", resp.StatusCode)
+	}
+
+	// Second conditional create must fail — object now exists.
+	resp = doSignedWithHeaders(t, http.MethodPut, ts.URL+"/"+bucket+"/"+key, []byte("v2"), map[string]string{
+		"If-None-Match": "*",
+	})
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusPreconditionFailed {
+		t.Fatalf("second If-None-Match:* PUT: expected 412, got %d", resp.StatusCode)
+	}
+}
+
+// TestIntegrationConditionalPutIfMatch: `If-Match: <etag>` writes only when the
+// current ETag matches (optimistic-concurrency update).
+func TestIntegrationConditionalPutIfMatch(t *testing.T) {
+	ts := newIntegrationServer(t)
+	bucket := "cput-ifmatch"
+	key := "doc.txt"
+
+	resp := doSigned(t, http.MethodPut, ts.URL+"/"+bucket, nil)
+	resp.Body.Close()
+	resp = doSigned(t, http.MethodPut, ts.URL+"/"+bucket+"/"+key, []byte("original"))
+	etag := resp.Header.Get("ETag")
+	resp.Body.Close()
+
+	// Wrong ETag → rejected.
+	resp = doSignedWithHeaders(t, http.MethodPut, ts.URL+"/"+bucket+"/"+key, []byte("update"), map[string]string{
+		"If-Match": "\"deadbeef\"",
+	})
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusPreconditionFailed {
+		t.Fatalf("If-Match wrong etag: expected 412, got %d", resp.StatusCode)
+	}
+
+	// Correct ETag → accepted.
+	resp = doSignedWithHeaders(t, http.MethodPut, ts.URL+"/"+bucket+"/"+key, []byte("update"), map[string]string{
+		"If-Match": etag,
+	})
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("If-Match correct etag: expected 200, got %d", resp.StatusCode)
+	}
+}
+
+// TestIntegrationConditionalPutAtomic is the concurrency regression test: many
+// simultaneous `If-None-Match: *` PUTs to the same key must yield exactly one
+// success and the rest 412 — proving the check-then-write is atomic (no
+// TOCTOU race where two creates both win).
+func TestIntegrationConditionalPutAtomic(t *testing.T) {
+	ts := newIntegrationServer(t)
+	bucket := "cas"
+	key := "lock.txt"
+
+	resp := doSigned(t, http.MethodPut, ts.URL+"/"+bucket, nil)
+	resp.Body.Close()
+
+	const n = 16
+	codes := make([]int, n)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			body := []byte(fmt.Sprintf("writer-%d", i))
+			req, err := http.NewRequest(http.MethodPut, ts.URL+"/"+bucket+"/"+key, bytes.NewReader(body))
+			if err != nil {
+				codes[i] = -1
+				return
+			}
+			req.Header.Set("If-None-Match", "*")
+			req.Header.Set("Content-Length", fmt.Sprintf("%d", len(body)))
+			signV4Request(req, testAccessKey, testSecretKey, body)
+
+			<-start // release all writers simultaneously
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				codes[i] = -2
+				return
+			}
+			resp.Body.Close()
+			codes[i] = resp.StatusCode
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	created, conflict := 0, 0
+	for _, c := range codes {
+		switch c {
+		case http.StatusOK:
+			created++
+		case http.StatusPreconditionFailed:
+			conflict++
+		}
+	}
+	if created != 1 {
+		t.Fatalf("expected exactly 1 winning create, got %d (codes=%v)", created, codes)
+	}
+	if conflict != n-1 {
+		t.Fatalf("expected %d losers with 412, got %d (codes=%v)", n-1, conflict, codes)
 	}
 }
 

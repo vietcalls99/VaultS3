@@ -29,7 +29,25 @@ type Config struct {
 	Erasure       ErasureConfig       `yaml:"erasure"`
 	Cluster       ClusterConfig       `yaml:"cluster"`
 	Memory        MemoryConfig        `yaml:"memory"`
+	Vector        VectorConfig        `yaml:"vector"`
 	Debug         bool                `yaml:"debug"`
+}
+
+// VectorConfig configures the optional semantic / vector search add-on. When
+// enabled, object text is embedded via an OpenAI-compatible endpoint and indexed
+// for similarity search (semantic search + RAG retrieval).
+type VectorConfig struct {
+	Enabled        bool     `yaml:"enabled"`
+	EmbeddingURL   string   `yaml:"embedding_url"`    // OpenAI-compatible /v1/embeddings endpoint
+	APIKey         string   `yaml:"api_key"`          // optional; empty for local servers (Ollama, etc.)
+	Model          string   `yaml:"model"`            // embedding model name
+	Dimensions     int      `yaml:"dimensions"`       // optional hint; pinned on first vector otherwise
+	MaxVectors     int      `yaml:"max_vectors"`      // cap on indexed vectors (0 = default)
+	AutoIndex      bool     `yaml:"auto_index"`       // embed text objects automatically on upload
+	IndexPrefixes  []string `yaml:"index_prefixes"`   // if set, only auto-index keys under these prefixes
+	MaxObjectBytes int64    `yaml:"max_object_bytes"` // skip auto-indexing objects larger than this
+	PersistPath    string   `yaml:"persist_path"`     // file to persist the index across restarts
+	TimeoutSecs    int      `yaml:"timeout_secs"`     // embedding HTTP timeout
 }
 
 type ErasureConfig struct {

@@ -4,10 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>VaultS3 — Lightweight S3-Compatible Object Storage</title>
-  <meta name="description" content="Self-hosted S3-compatible object storage. Single binary, under 80MB RAM, built-in dashboard. The lightweight alternative to MinIO.">
-  <meta name="keywords" content="s3, object storage, self-hosted, minio alternative, golang, dashboard, lightweight">
+  <meta name="description" content="Self-hosted S3-compatible object storage. Single binary, under 80MB RAM, built-in dashboard, erasure coding, Raft clustering, active-active replication, and built-in semantic / vector (RAG) search. The maintained, lightweight alternative to MinIO.">
+  <meta name="keywords" content="s3, object storage, self-hosted, minio alternative, golang, dashboard, lightweight, erasure coding, raft clustering, vector search, semantic search, rag, vector database">
   <meta property="og:title" content="VaultS3 — Lightweight S3-Compatible Object Storage">
-  <meta property="og:description" content="Single binary, under 80MB RAM, built-in dashboard. The lightweight alternative to MinIO.">
+  <meta property="og:description" content="Single binary, under 80MB RAM, built-in dashboard, erasure coding, clustering, and built-in semantic / vector (RAG) search. The maintained, lightweight alternative to MinIO.">
   <meta property="og:type" content="website">
   <meta property="og:image" content="https://raw.githubusercontent.com/Kodiqa-Solutions/VaultS3/main/assets/screenshots/dashboard-home-light.png">
   <link rel="icon" type="image/svg+xml" href="https://raw.githubusercontent.com/Kodiqa-Solutions/VaultS3/main/assets/logo-dark.svg">
@@ -628,7 +628,8 @@
       </h1>
       <p class="subtitle">
         Self-hosted S3-compatible object storage in a single binary.
-        Built-in dashboard, under 80MB RAM. The lightweight alternative to MinIO.
+        Built-in dashboard, under 80MB RAM, with erasure coding, clustering, and
+        built-in semantic / vector search. The maintained, lightweight alternative to MinIO.
       </p>
       <div class="hero-actions">
         <a href="https://github.com/Kodiqa-Solutions/VaultS3" class="btn btn-primary">
@@ -750,7 +751,35 @@
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22 6 12 13 2 6"/></svg>
         </div>
         <h3>Event Notifications</h3>
-        <p>Webhooks, Kafka, NATS, and Redis backends. Per-bucket event filtering with key prefix/suffix matching. Virus scanning support.</p>
+        <p>Webhooks, Kafka, NATS, Redis, AMQP, PostgreSQL, and Elasticsearch backends. Per-bucket event filtering with key prefix/suffix matching.</p>
+      </div>
+      <div class="feature-card reveal">
+        <div class="feature-icon purple">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#818cf8" stroke-width="2"><path d="M12 2a10 10 0 100 20 10 10 0 000-20z"/><path d="M2 12h20"/><path d="M12 2a15 15 0 014 10 15 15 0 01-4 10 15 15 0 01-4-10 15 15 0 014-10z"/></svg>
+        </div>
+        <h3>Semantic / Vector Search <span style="font-size:.7em;color:#10b981">NEW</span></h3>
+        <p>Built-in RAG store. Embeds object text via any OpenAI-compatible model (Ollama, llama.cpp, OpenAI) and serves similarity search from the API — no external vector database, all in the single binary.</p>
+      </div>
+      <div class="feature-card reveal">
+        <div class="feature-icon green">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2"><rect x="2" y="3" width="20" height="6" rx="1"/><rect x="2" y="15" width="20" height="6" rx="1"/><path d="M6 6h.01M6 18h.01"/></svg>
+        </div>
+        <h3>Erasure Coding &amp; Clustering</h3>
+        <p>Reed-Solomon erasure coding across multiple disks with a background healer, plus Raft-based clustering (consistent-hash placement, quorum, failover) for strongly-consistent metadata.</p>
+      </div>
+      <div class="feature-card reveal">
+        <div class="feature-icon amber">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 014-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg>
+        </div>
+        <h3>Active-Active Replication</h3>
+        <p>Multi-site replication with vector-clock conflict resolution, plus one-way async push mode. Keep data in sync across regions.</p>
+      </div>
+      <div class="feature-card reveal">
+        <div class="feature-icon purple">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#818cf8" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0018 0V5"/><path d="M3 12a9 3 0 0018 0"/></svg>
+        </div>
+        <h3>Tiering &amp; Backup</h3>
+        <p>Transparent hot/cold tiering (local or remote S3) with promotion on access, plus a built-in full/incremental backup scheduler with history.</p>
       </div>
     </div>
   </div>
@@ -793,9 +822,16 @@
           <tr>
             <td>Web dashboard</td>
             <td class="highlight"><span class="check">&#10003;</span> Built-in</td>
-            <td><span class="check">&#10003;</span> Built-in</td>
+            <td>Paid</td>
+            <td><span class="check">&#10003;</span></td>
             <td><span class="cross">&#10005;</span></td>
-            <td><span class="cross">&#10005;</span></td>
+          </tr>
+          <tr>
+            <td>Maintained open source</td>
+            <td class="highlight"><span class="check">&#10003;</span></td>
+            <td>Archived</td>
+            <td><span class="check">&#10003;</span></td>
+            <td><span class="check">&#10003;</span></td>
           </tr>
           <tr>
             <td>Object versioning</td>
@@ -822,11 +858,39 @@
             <td>FUSE mount</td>
             <td class="highlight"><span class="check">&#10003;</span> Built-in</td>
             <td><span class="cross">&#10005;</span></td>
-            <td>Buggy</td>
+            <td><span class="check">&#10003;</span></td>
+            <td><span class="cross">&#10005;</span></td>
+          </tr>
+          <tr>
+            <td>Erasure coding</td>
+            <td class="highlight"><span class="check">&#10003;</span></td>
+            <td><span class="check">&#10003;</span></td>
+            <td><span class="check">&#10003;</span></td>
+            <td><span class="cross">&#10005;</span></td>
+          </tr>
+          <tr>
+            <td>Raft clustering</td>
+            <td class="highlight"><span class="check">&#10003;</span></td>
+            <td><span class="check">&#10003;</span></td>
+            <td><span class="check">&#10003;</span></td>
+            <td><span class="check">&#10003;</span></td>
+          </tr>
+          <tr>
+            <td>Active-active replication</td>
+            <td class="highlight"><span class="check">&#10003;</span></td>
+            <td><span class="check">&#10003;</span></td>
+            <td><span class="cross">&#10005;</span></td>
             <td><span class="cross">&#10005;</span></td>
           </tr>
           <tr>
             <td>Full-text search</td>
+            <td class="highlight"><span class="check">&#10003;</span></td>
+            <td><span class="cross">&#10005;</span></td>
+            <td><span class="cross">&#10005;</span></td>
+            <td><span class="cross">&#10005;</span></td>
+          </tr>
+          <tr>
+            <td>Semantic / vector search</td>
             <td class="highlight"><span class="check">&#10003;</span></td>
             <td><span class="cross">&#10005;</span></td>
             <td><span class="cross">&#10005;</span></td>
