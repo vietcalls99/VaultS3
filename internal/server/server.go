@@ -143,6 +143,44 @@ func New(cfg *config.Config) (*Server, error) {
 		)
 	}
 
+	// Wrap with small-file packing if enabled (experimental). Small objects are
+	// packed as zstd frames into large volume files; large objects fall through to
+	// the layers below. Packed frames bypass the encryption/erasure layers, so for
+	// now packing is mutually exclusive with them.
+	if cfg.Packing.Enabled {
+		if cfg.Encryption.Enabled || cfg.Erasure.Enabled {
+			slog.Warn("small-file packing disabled: it does not yet compose with encryption or erasure coding")
+		} else {
+			pe, err := storage.NewPackedEngine(engine, cfg.Packing.MaxObjectSize, cfg.Packing.VolumeMaxSize)
+			if err != nil {
+				return nil, fmt.Errorf("init packing: %w", err)
+			}
+			engine = pe
+			slog.Info("small-file packing enabled",
+				"max_object_size", cfg.Packing.MaxObjectSize,
+				"volume_max_size", cfg.Packing.VolumeMaxSize,
+			)
+			if cfg.Packing.CompactIntervalHours > 0 {
+				ratio := cfg.Packing.CompactMinDeadRatio
+				if ratio <= 0 {
+					ratio = 0.5
+				}
+				interval := time.Duration(cfg.Packing.CompactIntervalHours) * time.Hour
+				go func() {
+					t := time.NewTicker(interval)
+					defer t.Stop()
+					for range t.C {
+						if n, err := pe.Compact(ratio); err != nil {
+							slog.Error("pack compaction failed", "error", err)
+						} else if n > 0 {
+							slog.Info("pack compaction reclaimed space", "bytes", n)
+						}
+					}
+				}()
+			}
+		}
+	}
+
 	// Initialize metadata store
 	metaDir := cfg.Storage.MetadataDir
 	if err := os.MkdirAll(metaDir, 0755); err != nil {

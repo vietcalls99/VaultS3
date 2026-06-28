@@ -31,6 +31,7 @@ type settingsResponse struct {
 		Vector      bool `json:"vector"`
 		Erasure     bool `json:"erasure"`
 		Cluster     bool `json:"cluster"`
+		Packing     bool `json:"packing"`
 		Debug       bool `json:"debug"`
 	} `json:"features"`
 	Lifecycle struct {
@@ -63,6 +64,7 @@ func (h *APIHandler) handleSettings(w http.ResponseWriter, _ *http.Request) {
 
 	resp.Features.Encryption = h.cfg.Encryption.Enabled
 	resp.Features.Compression = h.cfg.Compression.Enabled
+	resp.Features.Packing = h.cfg.Packing.Enabled
 	resp.Features.AccessLog = h.cfg.Logging.Enabled
 	resp.Features.RateLimit = h.cfg.RateLimit.Enabled
 	resp.Features.Replication = h.cfg.Replication.Enabled

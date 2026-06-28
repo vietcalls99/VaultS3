@@ -26,6 +26,7 @@ export interface Settings {
     vector: boolean
     erasure: boolean
     cluster: boolean
+    packing: boolean
     debug: boolean
   }
   lifecycle: {

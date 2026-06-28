@@ -51,6 +51,7 @@ export default function SettingsPage() {
     { label: 'Semantic / Vector Search', enabled: features.vector },
     { label: 'Erasure Coding', enabled: features.erasure },
     { label: 'Clustering', enabled: features.cluster },
+    { label: 'Small-file Packing', enabled: features.packing },
     { label: 'Debug Mode', enabled: features.debug },
   ]
 

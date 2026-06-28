@@ -22,8 +22,21 @@ encryption:
   enabled: false
   key: ""
 
+# Transparent zstd compression on write / decompress on read (reads legacy gzip
+# objects too). Skips already-compressed file types (jpg, mp4, zip, ...).
 compression:
   enabled: false
+
+# Small-file packing (EXPERIMENTAL): pack objects up to max_object_size into large
+# append-only volume files (as zstd frames) instead of one file each — avoids the
+# per-file overhead of millions of tiny objects. Does NOT compose with encryption
+# or erasure coding yet (it is skipped if either is enabled).
+packing:
+  enabled: false
+  max_object_size: 1048576       # 1 MiB — objects this size or smaller are packed
+  volume_max_size: 1073741824    # 1 GiB — roll to a new volume past this
+  compact_interval_hours: 24     # background dead-space reclamation; 0 = disabled
+  compact_min_dead_ratio: 0.5    # compact a volume once half of it is dead space
 
 logging:
   enabled: false

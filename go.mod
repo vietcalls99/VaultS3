@@ -8,6 +8,7 @@ require (
 	github.com/hanwen/go-fuse/v2 v2.9.0
 	github.com/hashicorp/raft v1.7.3
 	github.com/hashicorp/raft-boltdb/v2 v2.3.1
+	github.com/klauspost/compress v1.18.2
 	github.com/klauspost/reedsolomon v1.13.2
 	github.com/lib/pq v1.11.2
 	github.com/nats-io/nats.go v1.49.0
@@ -34,7 +35,6 @@ require (
 	github.com/hashicorp/go-metrics v0.5.4 // indirect
 	github.com/hashicorp/go-msgpack/v2 v2.1.2 // indirect
 	github.com/hashicorp/golang-lru v0.5.0 // indirect
-	github.com/klauspost/compress v1.18.2 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/mattn/go-colorable v0.1.12 // indirect
 	github.com/mattn/go-isatty v0.0.14 // indirect

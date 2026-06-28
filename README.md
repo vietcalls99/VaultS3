@@ -111,7 +111,8 @@ VaultS3 is honest about what's battle-tested versus still maturing. Pick the lan
 - **Object versioning** — Per-bucket versioning with version IDs, delete markers, version-specific GET/DELETE/HEAD
 - **Object locking (WORM)** — Legal hold and retention (GOVERNANCE/COMPLIANCE) to prevent deletion
 - **Lifecycle rules** — Per-bucket object expiration (auto-delete after N days) with background worker
-- **Gzip compression** — Transparent compress-on-write, decompress-on-read with standard gzip
+- **Zstandard compression** — Transparent compress-on-write, decompress-on-read with zstd (better ratio and speed than gzip); objects written by older gzip builds are still read transparently (codec auto-detected by magic number)
+- **Small-file packing (experimental)** — Optionally pack objects up to a size threshold into large append-only **volume** files (each as an independent zstd frame) with byte-offset locations in BoltDB, plus background dead-space **compaction** (`POST /api/v1/compact`) — avoids the per-file overhead (inodes, syscalls, disk blocks) of millions of tiny objects. Larger objects fall through to individual files. Not yet composable with encryption or erasure coding (skipped if either is enabled)
 - **Access logging** — Structured JSON lines log file of all S3 operations
 - **Static website hosting** — Serve index/error documents from buckets, no auth required
 - **IAM users, groups & policies** — Fine-grained access control with S3-compatible policy evaluation, default deny, wildcard matching
@@ -635,14 +636,35 @@ The background worker scans objects periodically (configurable interval, default
 
 ### Compression
 
-Enable gzip compression to reduce storage usage:
+Enable zstd compression to reduce storage usage:
 
 ```yaml
 compression:
   enabled: true
 ```
 
-All objects are transparently compressed on write and decompressed on read. Works with encryption (data is compressed then encrypted on disk).
+All objects are transparently compressed (zstd) on write and decompressed on read; objects written by older gzip builds are still read correctly. Works with encryption (data is compressed then encrypted on disk).
+
+### Small-file packing (experimental)
+
+For workloads with huge numbers of tiny objects, packing stores small objects as
+independent zstd frames inside large append-only **volume** files (with byte-offset
+locations in BoltDB) instead of one file per object — avoiding per-file overhead.
+Objects larger than `max_object_size` are stored as individual files as usual.
+
+```yaml
+packing:
+  enabled: true
+  max_object_size: 1048576       # objects this size (bytes) or smaller are packed
+  volume_max_size: 1073741824    # roll to a new volume past this size
+  compact_interval_hours: 24     # background dead-space reclamation; 0 = disabled
+  compact_min_dead_ratio: 0.5    # compact a volume once half of it is dead space
+```
+
+Deleted/overwritten objects leave dead space in volumes; it is reclaimed by
+background compaction (or on demand via `POST /api/v1/compact`). Packing is
+**experimental** and does not yet compose with encryption or erasure coding (it is
+skipped, with a warning, if either is enabled).
 
 ### Access Logging
 
@@ -1258,7 +1280,7 @@ VaultS3 is designed with security in mind:
 - **IPv6-safe rate limiting** — Uses `net.SplitHostPort` for correct IP extraction from IPv6 `[::1]:port` addresses
 - **OIDC authorization layer** — Dashboard admin routes (IAM, keys, STS, audit, settings, lambda, backups) restricted to admin user; OIDC users get read-only access
 - **Encryption size cap** — 1GB max object size for encrypted reads/writes prevents OOM from 3x RAM amplification
-- **Compression size cap** — 1GB max decompressed size prevents gzip bomb DoS
+- **Compression size cap** — 1GB max decompressed size prevents decompression-bomb DoS (gzip/zstd)
 - **Version path traversal protection** — `versionId` parameter validated against directory escape in version storage
 - **BatchDelete lock enforcement** — Batch delete respects WORM/legal-hold and validates keys against path traversal
 - **SigV4 timestamp validation** — Requests with `X-Amz-Date` skewed more than 15 minutes are rejected (prevents replay)

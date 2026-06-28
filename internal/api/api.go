@@ -179,6 +179,7 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		strings.HasPrefix(path, "/scanner/") ||
 		strings.HasPrefix(path, "/tiering/") ||
 		strings.HasPrefix(path, "/settings") ||
+		path == "/compact" ||
 		path == "/presign"
 
 	if adminPaths && !h.isAdminUser(r) {
@@ -353,6 +354,8 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleMigrateJobs(w, r)
 	case path == "/migrate/cancel" && r.Method == http.MethodPost:
 		h.handleMigrateCancel(w, r)
+	case path == "/compact" && r.Method == http.MethodPost:
+		h.handleCompact(w, r)
 
 	// Observability: real-time event streaming (SSE)
 	case path == "/events" && r.Method == http.MethodGet:

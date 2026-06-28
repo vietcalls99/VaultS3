@@ -5,12 +5,32 @@ All notable changes to VaultS3 are documented here. The format is based on
 semantic-ish versioning via git tags (`vMAJOR.MINOR.PATCH`).
 
 ## [Unreleased]
-### Changed
-- **Docker images and `make build` now embed the build version** (`-ldflags -X
-  main.version`), so the new sidebar version indicator and `-version` show the
-  real release (e.g. `v4.2.12`) instead of `dev`. Previously only the GitHub
-  Release binaries injected it, so Docker/source builds reported `dev`.
 
+## [4.2.13] - 2026-06-28
+### Added
+- **Small-file packing (experimental, issue #7).** A new `packing` storage mode
+  packs objects up to `max_object_size` into large append-only **volume** files —
+  each object an independent zstd frame, with byte-offset locations in a BoltDB
+  index — to avoid the per-file overhead (inodes, syscalls, disk blocks) of
+  millions of tiny objects. Larger objects fall through to individual files.
+  Deleted/overwritten objects leave dead space that is reclaimed by background
+  **compaction** (configurable interval) or on demand via `POST /api/v1/compact`.
+  Crash-safe (frames fsync'd before the index commit) and concurrency-safe
+  (compare-and-swap repointing, read-lock during volume deletion). Off by default;
+  configured under `packing:` in vaults3.yaml. Not yet composable with encryption
+  or erasure coding (skipped, with a warning, if either is enabled). This is the
+  packing half of #7; the codec half (gzip→zstd) is below.
+
+### Changed
+- **Object compression now uses Zstandard (zstd) instead of gzip (issue #7).**
+  New objects are written with zstd — better compression ratio and speed.
+  Objects written by older gzip builds are still read transparently (the codec is
+  detected by magic number), so there is no migration and nothing breaks; data
+  written while compression was off is passed through unchanged. The same 1GB
+  decompressed-size cap (decompression-bomb protection) and excluded file types
+  apply. (`klauspost/compress`, already in the dependency tree.)
+
+## [4.2.12] - 2026-06-28
 ### Added
 - **Sidebar version indicator (issue #8).** The dashboard sidebar now shows the
   running version (from `GET /api/v1/version`) with a subtle "update available"
@@ -23,6 +43,12 @@ semantic-ish versioning via git tags (`vMAJOR.MINOR.PATCH`).
   Starting an identical migration (same source + buckets) while one is already
   running is now rejected, so accidental double-clicks no longer spawn parallel
   copies (the Migrate button also disables while that source is busy).
+
+### Changed
+- **Docker images and `make build` now embed the build version** (`-ldflags -X
+  main.version`), so the sidebar version indicator and `-version` show the real
+  release (e.g. `v4.2.12`) instead of `dev`. Previously only the GitHub Release
+  binaries injected it, so Docker/source builds reported `dev`.
 
 ## [4.2.11] - 2026-06-28
 ### Fixed
@@ -233,7 +259,9 @@ semantic-ish versioning via git tags (`vMAJOR.MINOR.PATCH`).
   dashboard, CLI, versioning, WORM, notifications, full-text search, FUSE mount,
   and multi-platform release binaries + Docker images.
 
-[Unreleased]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.11...HEAD
+[Unreleased]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.13...HEAD
+[4.2.13]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.12...v4.2.13
+[4.2.12]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.11...v4.2.12
 [4.2.11]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.10...v4.2.11
 [4.2.10]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.9...v4.2.10
 [4.2.9]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.8...v4.2.9

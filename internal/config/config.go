@@ -15,6 +15,7 @@ type Config struct {
 	Auth          AuthConfig          `yaml:"auth"`
 	Encryption    EncryptionConfig    `yaml:"encryption"`
 	Compression   CompressionConfig   `yaml:"compression"`
+	Packing       PackingConfig       `yaml:"packing"`
 	Logging       LoggingConfig       `yaml:"logging"`
 	Lifecycle     LifecycleConfig     `yaml:"lifecycle"`
 	Security      SecurityConfig      `yaml:"security"`
@@ -284,6 +285,18 @@ type KMSEncryptionConfig struct {
 
 type CompressionConfig struct {
 	Enabled bool `yaml:"enabled"`
+}
+
+// PackingConfig controls small-file packing: objects up to MaxObjectSize are
+// packed (as zstd frames) into large append-only volume files instead of
+// individual files, avoiding per-file overhead for huge numbers of tiny objects.
+// Experimental; does not compose with encryption or erasure coding yet.
+type PackingConfig struct {
+	Enabled              bool    `yaml:"enabled"`
+	MaxObjectSize        int64   `yaml:"max_object_size"`        // bytes; <= this is packed (default 1 MiB)
+	VolumeMaxSize        int64   `yaml:"volume_max_size"`        // bytes; roll to a new volume past this (default 1 GiB)
+	CompactIntervalHours int     `yaml:"compact_interval_hours"` // background compaction interval; 0 = disabled
+	CompactMinDeadRatio  float64 `yaml:"compact_min_dead_ratio"` // compact a volume once this fraction is dead (default 0.5)
 }
 
 type LoggingConfig struct {

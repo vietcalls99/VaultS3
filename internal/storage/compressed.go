@@ -8,7 +8,12 @@ import (
 	"io"
 	"path/filepath"
 	"strings"
+
+	"github.com/klauspost/compress/zstd"
 )
+
+// zstdEncoder is reused across objects — EncodeAll is safe for concurrent use.
+var zstdEncoder, _ = zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.SpeedDefault))
 
 // excludedExtensions lists file extensions that should NOT be compressed
 // because they are already compressed or would not benefit from compression.
@@ -22,8 +27,10 @@ var excludedExtensions = map[string]bool{
 }
 
 // CompressedEngine wraps another Engine and compresses/decompresses data transparently.
-// Uses gzip compression. Data is compressed before writing and decompressed after reading.
-// Files with already-compressed extensions are passed through without compression.
+// New objects are compressed with zstd (better ratio and speed than gzip); objects
+// written by older versions with gzip are still read transparently (the codec is
+// detected by magic number on read). Files with already-compressed extensions are
+// passed through without compression.
 type CompressedEngine struct {
 	inner         Engine
 	ExcludedTypes map[string]bool // additional excluded extensions
@@ -138,19 +145,11 @@ func (c *CompressedEngine) compressAndPut(reader io.Reader, putFn func(io.Reader
 	h := md5.Sum(plaintext)
 	etag := fmt.Sprintf("\"%x\"", h)
 
-	// Compress
-	var buf bytes.Buffer
-	gz := gzip.NewWriter(&buf)
-	if _, err := gz.Write(plaintext); err != nil {
-		return 0, "", fmt.Errorf("compress: %w", err)
-	}
-	if err := gz.Close(); err != nil {
-		return 0, "", fmt.Errorf("compress close: %w", err)
-	}
+	// Compress with zstd. EncodeAll on the shared encoder is concurrent-safe and
+	// avoids per-object allocations.
+	compressed := zstdEncoder.EncodeAll(plaintext, nil)
 
-	// Write compressed data to inner engine
-	_, _, err = putFn(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
-	if err != nil {
+	if _, _, err = putFn(bytes.NewReader(compressed), int64(len(compressed))); err != nil {
 		return 0, "", err
 	}
 
@@ -171,13 +170,7 @@ func (c *CompressedEngine) getAndDecompress(getFn func() (ReadSeekCloser, int64,
 		return nil, 0, fmt.Errorf("read compressed data: %w", err)
 	}
 
-	gz, err := gzip.NewReader(bytes.NewReader(compressed))
-	if err != nil {
-		return nil, 0, fmt.Errorf("gzip reader: %w", err)
-	}
-	defer gz.Close()
-
-	plaintext, err := io.ReadAll(io.LimitReader(gz, maxCompressedSize+1))
+	plaintext, err := decompressBlock(compressed)
 	if err != nil {
 		return nil, 0, fmt.Errorf("decompress: %w", err)
 	}
@@ -186,4 +179,29 @@ func (c *CompressedEngine) getAndDecompress(getFn func() (ReadSeekCloser, int64,
 	}
 
 	return &bytesReadSeekCloser{Reader: bytes.NewReader(plaintext)}, int64(len(plaintext)), nil
+}
+
+// decompressBlock decompresses a stored object, detecting the codec by magic
+// number so both new (zstd) and legacy (gzip) objects read correctly. Data that
+// matches neither magic (e.g. written while compression was disabled) is returned
+// unchanged. The LimitReader caps output to guard against decompression bombs.
+func decompressBlock(data []byte) ([]byte, error) {
+	switch {
+	case len(data) >= 4 && data[0] == 0x28 && data[1] == 0xB5 && data[2] == 0x2F && data[3] == 0xFD:
+		dec, err := zstd.NewReader(bytes.NewReader(data))
+		if err != nil {
+			return nil, fmt.Errorf("zstd reader: %w", err)
+		}
+		defer dec.Close()
+		return io.ReadAll(io.LimitReader(dec, maxCompressedSize+1))
+	case len(data) >= 2 && data[0] == 0x1F && data[1] == 0x8B:
+		gz, err := gzip.NewReader(bytes.NewReader(data))
+		if err != nil {
+			return nil, fmt.Errorf("gzip reader: %w", err)
+		}
+		defer gz.Close()
+		return io.ReadAll(io.LimitReader(gz, maxCompressedSize+1))
+	default:
+		return data, nil
+	}
 }
