@@ -6,6 +6,7 @@ semantic-ish versioning via git tags (`vMAJOR.MINOR.PATCH`).
 
 ## [Unreleased]
 
+## [4.2.6] - 2026-06-28
 ### Added
 - **Migrate from S3 (`internal/migrate`)** — import buckets and objects from any
   S3-compatible source (MinIO, AWS S3, Garage…) into VaultS3. A SigV4 source
@@ -15,6 +16,11 @@ semantic-ish versioning via git tags (`vMAJOR.MINOR.PATCH`).
 - **Dashboard semantic search** — the Search page now has a Keyword / Semantic
   toggle; Semantic mode queries the vector store and shows results ranked by
   cosine similarity (greys out with a hint when vector search is disabled).
+- Settings page surfaces the Vector Search, Erasure Coding, and Clustering
+  feature flags in its read-only status panel.
+
+## [4.2.5] - 2026-06-28
+### Added
 - **Semantic / vector search (optional add-on)** — a new `internal/vector` package
   brings RAG-style retrieval into the single binary, with no external vector
   database. A dependency-free cosine-kNN index (persisted across restarts) is fed
@@ -33,23 +39,12 @@ semantic-ish versioning via git tags (`vMAJOR.MINOR.PATCH`).
   lock files and Iceberg-style commits. Writes carrying a conditional header now
   hold a per-key striped lock across the check-and-write, so exactly one create
   wins. Regression test spins up 16 concurrent creators and asserts 1×200 + 15×412.
-- Test coverage for the remaining seven previously-untested packages, so **every
-  `internal/` package now has tests**: `metrics` (counters + Prometheus output),
-  `lambda` (event/filter matching + key templating), `batch` (bulk delete/copy
-  jobs), `inventory` (CSV report generation), `scanner` (webhook scan + quarantine
-  + fail-closed), `accesslog` (JSON log append), and `dashboard` (SPA routing).
 
-### Fixed
-- **Tiering deadlock (data-availability bug):** the background tier scan called
-  `SetObjectTier` (a write transaction) from inside `IterateAllObjects` (a read
-  transaction), which deadlocks BoltDB — the scan would hang forever the first
-  time it tried to migrate any object to cold. `scan()` now collects candidates
-  inside the read txn and migrates them after it closes. Found by the new
-  tiering tests.
-
+## [4.2.4] - 2026-06-28
 ### Added
 - Fault-injection / consensus test coverage for the data-durability subsystems
-  that previously had little or none:
+  that previously had little or none — and the last seven untested packages, so
+  **every `internal/` package now has tests**:
   - **erasure** — Reed-Solomon encode/reconstruct, lost-disk reads, and the
     background healer repairing degraded objects (0% → ~64%).
   - **cluster** — consistent-hash ring + failure-detector state machine, plus a
@@ -58,17 +53,22 @@ semantic-ish versioning via git tags (`vMAJOR.MINOR.PATCH`).
     membership changes (14.9% → 22.5%).
   - **replication** — vector-clock causality/merge and all three conflict
     resolution strategies (last-writer-wins, largest-object, site-preference).
-  - **tiering** — hot↔cold migration, the stale-object scan, transparent read
-    with promotion-back, and round-trip integrity (0% → ~39%).
-  - **backup** — full vs incremental selection, restore round-trip byte-identity,
-    and local-target path-traversal guard (0% → ~48%).
-  - **fuse** — write/read/delete round-trip over an in-process S3 stub (no kernel
-    mount), block-cache LRU eviction, and metadata-cache TTL (0% → ~45%).
+  - **tiering** (0% → ~39%), **backup** (0% → ~48%), **fuse** (0% → ~45%).
+  - **metrics, lambda, batch, inventory, scanner, accesslog, dashboard** — baseline
+    coverage for the remaining packages.
 - `docs/BENCHMARKS.md` — reproducible benchmark methodology (the `/speedtest`
   endpoint, `warp` for comparative throughput, RSS measurement) + results template.
 - README **Production Readiness** section (stable vs. beta paths) and a
   refreshed competitor comparison verified against June 2026 sources.
 - `CONTRIBUTING.md`, `CHANGELOG.md`, and GitHub issue/PR templates.
+
+### Fixed
+- **Tiering deadlock (data-availability bug):** the background tier scan called
+  `SetObjectTier` (a write transaction) from inside `IterateAllObjects` (a read
+  transaction), which deadlocks BoltDB — the scan would hang forever the first
+  time it tried to migrate any object to cold. `scan()` now collects candidates
+  inside the read txn and migrates them after it closes. Found by the new
+  tiering tests.
 
 ### Changed
 - `internal/cluster`: extracted a `newNodeWithDeps` seam so the Raft transport
@@ -131,7 +131,10 @@ semantic-ish versioning via git tags (`vMAJOR.MINOR.PATCH`).
   dashboard, CLI, versioning, WORM, notifications, full-text search, FUSE mount,
   and multi-platform release binaries + Docker images.
 
-[Unreleased]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.3...HEAD
+[Unreleased]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.6...HEAD
+[4.2.6]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.5...v4.2.6
+[4.2.5]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.4...v4.2.5
+[4.2.4]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.3...v4.2.4
 [4.2.3]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.2...v4.2.3
 [4.2.2]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.1...v4.2.2
 [4.2.1]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.0...v4.2.1
