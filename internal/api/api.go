@@ -19,6 +19,7 @@ import (
 	"github.com/Kodiqa-Solutions/VaultS3/internal/scanner"
 	"github.com/Kodiqa-Solutions/VaultS3/internal/search"
 	"github.com/Kodiqa-Solutions/VaultS3/internal/selfupdate"
+	"github.com/Kodiqa-Solutions/VaultS3/internal/snapshot"
 	"github.com/Kodiqa-Solutions/VaultS3/internal/storage"
 	"github.com/Kodiqa-Solutions/VaultS3/internal/tiering"
 	"github.com/Kodiqa-Solutions/VaultS3/internal/vector"
@@ -36,6 +37,7 @@ type APIHandler struct {
 	vectorMgr        *vector.Manager
 	migrator         *migrate.Manager
 	updater          *selfupdate.Updater
+	snapshots        *snapshot.Manager
 	scanner          *scanner.Scanner
 	tieringMgr       *tiering.Manager
 	ecHealer         *erasure.Healer
@@ -78,6 +80,11 @@ func (h *APIHandler) SetMigrator(m *migrate.Manager) {
 // SetUpdater sets the self-update checker.
 func (h *APIHandler) SetUpdater(u *selfupdate.Updater) {
 	h.updater = u
+}
+
+// SetSnapshotManager sets the bucket-snapshot (git-for-buckets) manager.
+func (h *APIHandler) SetSnapshotManager(m *snapshot.Manager) {
+	h.snapshots = m
 }
 
 // SetOIDCValidator sets the OIDC validator for the API handler.
@@ -496,6 +503,8 @@ func (h *APIHandler) routeBucket(w http.ResponseWriter, r *http.Request, rest st
 		} else {
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		}
+	case "snapshots":
+		h.routeSnapshots(w, r, name, keyRest)
 	case "download-zip":
 		if r.Method == http.MethodGet {
 			h.handleDownloadZip(w, r, name)

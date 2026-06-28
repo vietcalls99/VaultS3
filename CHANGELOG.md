@@ -6,6 +6,21 @@ semantic-ish versioning via git tags (`vMAJOR.MINOR.PATCH`).
 
 ## [Unreleased]
 
+### Added
+- **Bucket snapshots ("git-for-buckets")** — a new `internal/snapshot` package plus
+  a dashboard panel on each bucket: capture the bucket's state (commit), diff it
+  against the live bucket, and roll back (restore) in one click — git-style history
+  built on object versioning, with no external stack (vs. lakeFS, which needs a
+  separate server + database). Restore re-points version pointers (no data
+  deleted), so it resurrects deleted objects and is itself reversible. API under
+  `/api/v1/buckets/{bucket}/snapshots`. Requires bucket versioning.
+
+### Fixed
+- The dashboard is now **version-aware** for object operations on versioned
+  buckets: uploads create versions, downloads/zips resolve the latest version,
+  and deletes write a delete marker (recoverable) instead of failing. Previously
+  these used the unversioned path and broke on versioned buckets.
+
 ## [4.2.8] - 2026-06-28
 ### Added
 - **Cost estimator** — a dashboard "Cost" page (and `GET /api/v1/tco`) that

@@ -128,18 +128,50 @@ func (h *APIHandler) handleDeleteObject(w http.ResponseWriter, _ *http.Request, 
 		return
 	}
 
-	if !h.engine.ObjectExists(bucket, key) {
+	meta, err := h.store.GetObjectMeta(bucket, key)
+	if err != nil || meta == nil || meta.DeleteMarker {
 		writeError(w, http.StatusNotFound, "object not found")
 		return
 	}
 
+	if versioning, _ := h.store.GetBucketVersioning(bucket); versioning == "Enabled" || meta.VersionID != "" {
+		// Versioned bucket: write a delete marker instead of erasing data. The
+		// object disappears from listings but its versions are kept, so it stays
+		// snapshot/restore-able (S3 versioned-delete semantics).
+		old := *meta
+		old.IsLatest = false
+		h.store.PutObjectVersion(old)
+
+		dm := metadata.ObjectMeta{
+			Bucket: bucket, Key: key, VersionID: genVersionID(),
+			DeleteMarker: true, IsLatest: true, LastModified: time.Now().UTC().Unix(),
+		}
+		h.store.PutObjectVersion(dm)
+		h.store.PutObjectMeta(dm)
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	// Non-versioned: hard delete.
 	if err := h.engine.DeleteObject(bucket, key); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to delete object")
 		return
 	}
 	h.store.DeleteObjectMeta(bucket, key)
-
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// getLatestObject returns a reader for an object's current content, resolving the
+// latest version when the bucket is versioned (data then lives under .vs/, not
+// at the plain key path).
+func (h *APIHandler) getLatestObject(bucket, key string) (io.ReadCloser, int64, *metadata.ObjectMeta, error) {
+	meta, _ := h.store.GetObjectMeta(bucket, key)
+	if meta != nil && meta.VersionID != "" {
+		r, sz, err := h.engine.GetObjectVersion(bucket, key, meta.VersionID)
+		return r, sz, meta, err
+	}
+	r, sz, err := h.engine.GetObject(bucket, key)
+	return r, sz, meta, err
 }
 
 func (h *APIHandler) handleDownload(w http.ResponseWriter, r *http.Request, bucket, key string) {
@@ -148,7 +180,7 @@ func (h *APIHandler) handleDownload(w http.ResponseWriter, r *http.Request, buck
 		return
 	}
 
-	reader, size, err := h.engine.GetObject(bucket, key)
+	reader, size, meta, err := h.getLatestObject(bucket, key)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "object not found")
 		return
@@ -157,7 +189,7 @@ func (h *APIHandler) handleDownload(w http.ResponseWriter, r *http.Request, buck
 
 	// Set content type from metadata
 	ct := "application/octet-stream"
-	if meta, err := h.store.GetObjectMeta(bucket, key); err == nil && meta != nil {
+	if meta != nil && meta.ContentType != "" {
 		ct = meta.ContentType
 	}
 
@@ -190,6 +222,7 @@ func (h *APIHandler) handleUpload(w http.ResponseWriter, r *http.Request, bucket
 	}
 
 	prefix := r.URL.Query().Get("prefix")
+	versioning, _ := h.store.GetBucketVersioning(bucket)
 	var results []uploadResult
 
 	for _, fileHeaders := range r.MultipartForm.File {
@@ -200,19 +233,12 @@ func (h *APIHandler) handleUpload(w http.ResponseWriter, r *http.Request, bucket
 			}
 
 			key := prefix + fh.Filename
-
 			if err := validateObjectKey(key); err != nil {
 				file.Close()
 				continue
 			}
 
-			written, etag, err := h.engine.PutObject(bucket, key, file, fh.Size)
-			file.Close()
-			if err != nil {
-				continue
-			}
-
-			// Detect content type
+			// Detect content type up front.
 			ct := fh.Header.Get("Content-Type")
 			if ct == "" || ct == "application/octet-stream" {
 				if detected := mime.TypeByExtension(filepath.Ext(key)); detected != "" {
@@ -222,14 +248,39 @@ func (h *APIHandler) handleUpload(w http.ResponseWriter, r *http.Request, bucket
 				}
 			}
 
-			h.store.PutObjectMeta(metadata.ObjectMeta{
-				Bucket:       bucket,
-				Key:          key,
-				ContentType:  ct,
-				ETag:         etag,
-				Size:         written,
-				LastModified: time.Now().UTC().Unix(),
-			})
+			now := time.Now().UTC().Unix()
+			var written int64
+			var etag string
+
+			if versioning == "Enabled" {
+				// Versioned bucket: write a new version so the object has history
+				// (and is snapshot/restore-able), mirroring the S3 PutObject path.
+				versionID := genVersionID()
+				written, etag, err = h.engine.PutObjectVersion(bucket, key, versionID, file, fh.Size)
+				file.Close()
+				if err != nil {
+					continue
+				}
+				if old, e := h.store.GetObjectMeta(bucket, key); e == nil && old.VersionID != "" {
+					old.IsLatest = false
+					h.store.PutObjectVersion(*old)
+				}
+				meta := metadata.ObjectMeta{
+					Bucket: bucket, Key: key, ContentType: ct, ETag: etag, Size: written,
+					LastModified: now, VersionID: versionID, IsLatest: true,
+				}
+				h.store.PutObjectVersion(meta)
+				h.store.PutObjectMeta(meta)
+			} else {
+				written, etag, err = h.engine.PutObject(bucket, key, file, fh.Size)
+				file.Close()
+				if err != nil {
+					continue
+				}
+				h.store.PutObjectMeta(metadata.ObjectMeta{
+					Bucket: bucket, Key: key, ContentType: ct, ETag: etag, Size: written, LastModified: now,
+				})
+			}
 
 			results = append(results, uploadResult{
 				Key:         key,
@@ -327,7 +378,7 @@ func (h *APIHandler) handleDownloadZip(w http.ResponseWriter, r *http.Request, b
 		if err := validateObjectKey(key); err != nil {
 			continue
 		}
-		reader, _, err := h.engine.GetObject(bucket, key)
+		reader, _, _, err := h.getLatestObject(bucket, key)
 		if err != nil {
 			continue
 		}

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useToast } from '../hooks/useToast'
+import SnapshotsPanel from '../components/SnapshotsPanel'
 import {
   getBucket, setBucketPolicy, setBucketQuota,
   getBucketVersioning, setBucketVersioning,
@@ -401,6 +402,10 @@ export default function BucketDetailPage() {
           {savingPolicy ? 'Saving...' : 'Save Policy'}
         </button>
       </Section>
+
+      <div className="mb-4">
+        <SnapshotsPanel bucket={bucket.name} versioningEnabled={versioning === 'Enabled'} />
+      </div>
     </div>
   )
 }

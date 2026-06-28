@@ -37,6 +37,7 @@ import (
 	"github.com/Kodiqa-Solutions/VaultS3/internal/scanner"
 	"github.com/Kodiqa-Solutions/VaultS3/internal/search"
 	"github.com/Kodiqa-Solutions/VaultS3/internal/selfupdate"
+	"github.com/Kodiqa-Solutions/VaultS3/internal/snapshot"
 	"github.com/Kodiqa-Solutions/VaultS3/internal/storage"
 	"github.com/Kodiqa-Solutions/VaultS3/internal/tiering"
 	"github.com/Kodiqa-Solutions/VaultS3/internal/vector"
@@ -562,6 +563,7 @@ func (s *Server) Run() error {
 	apiHandler.SetS3Authenticator(s.s3Auth)
 	apiHandler.SetSearchIndex(s.searchIndex)
 	apiHandler.SetMigrator(migrate.NewManager(s.store, s.engine))
+	apiHandler.SetSnapshotManager(snapshot.NewManager(s.store))
 
 	// Update checker (notifier always; auto-apply only if explicitly enabled).
 	updater := selfupdate.New(Version)
