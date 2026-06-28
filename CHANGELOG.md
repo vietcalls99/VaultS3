@@ -6,7 +6,7 @@ semantic-ish versioning via git tags (`vMAJOR.MINOR.PATCH`).
 
 ## [Unreleased]
 
-## [4.2.13] - 2026-06-28
+## [4.2.14] - 2026-06-28
 ### Added
 - **Small-file packing (experimental, issue #7).** A new `packing` storage mode
   packs objects up to `max_object_size` into large append-only **volume** files —
@@ -259,8 +259,8 @@ semantic-ish versioning via git tags (`vMAJOR.MINOR.PATCH`).
   dashboard, CLI, versioning, WORM, notifications, full-text search, FUSE mount,
   and multi-platform release binaries + Docker images.
 
-[Unreleased]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.13...HEAD
-[4.2.13]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.12...v4.2.13
+[Unreleased]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.14...HEAD
+[4.2.14]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.12...v4.2.14
 [4.2.12]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.11...v4.2.12
 [4.2.11]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.10...v4.2.11
 [4.2.10]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.9...v4.2.10

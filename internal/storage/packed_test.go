@@ -290,7 +290,12 @@ func TestPackedCompactConcurrent(t *testing.T) {
 
 	var wg sync.WaitGroup
 	wg.Add(1)
-	go func() { defer wg.Done(); for j := 0; j < 5; j++ { p.Compact(0.1) } }()
+	go func() {
+		defer wg.Done()
+		for j := 0; j < 5; j++ {
+			p.Compact(0.1)
+		}
+	}()
 	for r := 0; r < 4; r++ {
 		wg.Add(1)
 		go func() {
