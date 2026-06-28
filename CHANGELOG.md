@@ -6,6 +6,13 @@ semantic-ish versioning via git tags (`vMAJOR.MINOR.PATCH`).
 
 ## [Unreleased]
 
+## [4.2.8] - 2026-06-28
+### Added
+- **Cost estimator** — a dashboard "Cost" page (and `GET /api/v1/tco`) that
+  estimates the monthly/yearly cost of your live stored data on AWS S3, Google
+  Cloud Storage, Cloudflare R2, Backblaze B2, and Wasabi (storage + adjustable
+  egress) against self-hosting with VaultS3 (egress-free, $0). Pricing rates come
+  from the server; the egress slider recomputes instantly client-side.
 ### Changed
 - **Migration is now streaming + resilient (issue #6).** The migrator streams each
   object straight from the source into the local engine instead of buffering the
@@ -13,12 +20,8 @@ semantic-ish versioning via git tags (`vMAJOR.MINOR.PATCH`).
   source failures (HTTP 5xx / 429 / network errors) with exponential backoff —
   while leaving permanent errors (4xx) to fail fast. Listing is retried too.
 
+## [4.2.7] - 2026-06-28
 ### Added
-- **Cost estimator** — a dashboard "Cost" page (and `GET /api/v1/tco`) that
-  estimates the monthly/yearly cost of your live stored data on AWS S3, Google
-  Cloud Storage, Cloudflare R2, Backblaze B2, and Wasabi (storage + adjustable
-  egress) against self-hosting with VaultS3 (egress-free, $0). Pricing rates come
-  from the server; the egress slider recomputes instantly client-side.
 - **Auto-update (opt-in)** — a new `internal/selfupdate` package checks GitHub
   Releases on a daily interval and surfaces a **dashboard banner** when a newer
   version is out (`GET /api/v1/version`). With `auto_update.apply: true` it also
@@ -154,7 +157,9 @@ semantic-ish versioning via git tags (`vMAJOR.MINOR.PATCH`).
   dashboard, CLI, versioning, WORM, notifications, full-text search, FUSE mount,
   and multi-platform release binaries + Docker images.
 
-[Unreleased]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.6...HEAD
+[Unreleased]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.8...HEAD
+[4.2.8]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.7...v4.2.8
+[4.2.7]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.6...v4.2.7
 [4.2.6]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.5...v4.2.6
 [4.2.5]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.4...v4.2.5
 [4.2.4]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.3...v4.2.4
