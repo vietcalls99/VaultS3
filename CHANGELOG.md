@@ -5,6 +5,8 @@ All notable changes to VaultS3 are documented here. The format is based on
 semantic-ish versioning via git tags (`vMAJOR.MINOR.PATCH`).
 
 ## [Unreleased]
+
+## [4.2.11] - 2026-06-28
 ### Fixed
 - **Object keys with `&`, `$`, or spaces broke SigV4 auth (issue #9).** VaultS3
   built the SigV4 canonical URI from the raw request path, which leaves
@@ -213,7 +215,8 @@ semantic-ish versioning via git tags (`vMAJOR.MINOR.PATCH`).
   dashboard, CLI, versioning, WORM, notifications, full-text search, FUSE mount,
   and multi-platform release binaries + Docker images.
 
-[Unreleased]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.10...HEAD
+[Unreleased]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.11...HEAD
+[4.2.11]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.10...v4.2.11
 [4.2.10]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.9...v4.2.10
 [4.2.9]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.8...v4.2.9
 [4.2.8]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.7...v4.2.8
