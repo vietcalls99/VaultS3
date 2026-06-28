@@ -6,6 +6,17 @@ semantic-ish versioning via git tags (`vMAJOR.MINOR.PATCH`).
 
 ## [Unreleased]
 
+### Added
+- **Auto-update (opt-in)** — a new `internal/selfupdate` package checks GitHub
+  Releases on a daily interval and surfaces a **dashboard banner** when a newer
+  version is out (`GET /api/v1/version`). With `auto_update.apply: true` it also
+  downloads the release for the running platform, **verifies its SHA-256 checksum**
+  (refuses to install otherwise), atomically swaps the binary, and re-execs into
+  the new version — never crossing a major version automatically. Updates only
+  ever replace the binary; object data, metadata, and config are untouched. Skips
+  self-apply inside Docker (use Watchtower — documented in the README). Configure
+  under `auto_update:` in vaults3.yaml (disabled by default).
+
 ## [4.2.6] - 2026-06-28
 ### Added
 - **Migrate from S3 (`internal/migrate`)** — import buckets and objects from any

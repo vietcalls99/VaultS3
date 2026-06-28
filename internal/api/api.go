@@ -18,6 +18,7 @@ import (
 	s3auth "github.com/Kodiqa-Solutions/VaultS3/internal/s3"
 	"github.com/Kodiqa-Solutions/VaultS3/internal/scanner"
 	"github.com/Kodiqa-Solutions/VaultS3/internal/search"
+	"github.com/Kodiqa-Solutions/VaultS3/internal/selfupdate"
 	"github.com/Kodiqa-Solutions/VaultS3/internal/storage"
 	"github.com/Kodiqa-Solutions/VaultS3/internal/tiering"
 	"github.com/Kodiqa-Solutions/VaultS3/internal/vector"
@@ -34,6 +35,7 @@ type APIHandler struct {
 	searchIndex      *search.Index
 	vectorMgr        *vector.Manager
 	migrator         *migrate.Manager
+	updater          *selfupdate.Updater
 	scanner          *scanner.Scanner
 	tieringMgr       *tiering.Manager
 	ecHealer         *erasure.Healer
@@ -71,6 +73,11 @@ func (h *APIHandler) SetVectorManager(m *vector.Manager) {
 // SetMigrator sets the S3 migration manager.
 func (h *APIHandler) SetMigrator(m *migrate.Manager) {
 	h.migrator = m
+}
+
+// SetUpdater sets the self-update checker.
+func (h *APIHandler) SetUpdater(u *selfupdate.Updater) {
+	h.updater = u
 }
 
 // SetOIDCValidator sets the OIDC validator for the API handler.
@@ -321,6 +328,10 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleVectorQuery(w, r)
 	case path == "/vectors/status" && r.Method == http.MethodGet:
 		h.handleVectorStatus(w, r)
+
+	// Version / update status
+	case path == "/version" && r.Method == http.MethodGet:
+		h.handleVersion(w, r)
 
 	// Migration from an S3-compatible source
 	case path == "/migrate/test" && r.Method == http.MethodPost:

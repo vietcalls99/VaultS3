@@ -46,6 +46,9 @@ func main() {
 	handler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})
 	slog.SetDefault(slog.New(handler))
 
+	// Make the build version available to the server (update checker, /version API).
+	server.Version = version
+
 	// Create server
 	srv, err := server.New(cfg)
 	if err != nil {

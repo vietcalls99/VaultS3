@@ -147,6 +147,16 @@ vector:
   persist_path: "./data/vectors.gob"  # survive restarts (embeddings are costly)
   timeout_secs: 30
 
+# Auto-update (optional). Checks GitHub Releases daily and shows a dashboard
+# banner when a newer version exists. Self-update only ever swaps the binary —
+# object data, metadata, and config are never touched, and downloads are
+# checksum-verified. For Docker, leave `apply` off and use Watchtower instead.
+auto_update:
+  enabled: false               # run the daily check + dashboard notifier
+  apply: false                 # also download+install automatically (binary deploys only)
+  check_interval_hours: 24
+  allow_major: false           # never auto-cross a major version
+
 # Erasure coding (optional, works with or without clustering)
 erasure:
   enabled: false

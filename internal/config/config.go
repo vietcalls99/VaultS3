@@ -30,7 +30,18 @@ type Config struct {
 	Cluster       ClusterConfig       `yaml:"cluster"`
 	Memory        MemoryConfig        `yaml:"memory"`
 	Vector        VectorConfig        `yaml:"vector"`
+	AutoUpdate    AutoUpdateConfig    `yaml:"auto_update"`
 	Debug         bool                `yaml:"debug"`
+}
+
+// AutoUpdateConfig controls the daily update check and optional self-update.
+// The check (notifier) and apply are both opt-in. Self-update only ever replaces
+// the binary — object data, metadata, and config are never touched.
+type AutoUpdateConfig struct {
+	Enabled          bool `yaml:"enabled"`              // run the daily check + dashboard notifier
+	Apply            bool `yaml:"apply"`                // also download+install automatically (binary deploys only)
+	CheckIntervalHrs int  `yaml:"check_interval_hours"` // default 24
+	AllowMajor       bool `yaml:"allow_major"`          // allow auto-crossing a major version (default false)
 }
 
 // VectorConfig configures the optional semantic / vector search add-on. When

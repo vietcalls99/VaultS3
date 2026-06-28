@@ -1344,6 +1344,39 @@ VaultS3/
 - Node.js 20.19+ (dashboard build only — Vite 8 / Rolldown)
 - No runtime dependencies
 
+## Updating
+
+VaultS3 can check GitHub Releases once a day and show a **dashboard banner** when
+a newer version is out. Updates only ever replace the binary or image — your
+object data, metadata, and config are never touched.
+
+**Docker (recommended): [Watchtower](https://containrrr.dev/watchtower/)** watches
+for a new image and recreates the container; your data volumes are preserved:
+
+```yaml
+services:
+  vaults3:
+    image: eniz1806/vaults3:latest
+    volumes: [vaults3-data:/data, vaults3-meta:/metadata]
+  watchtower:
+    image: containrrr/watchtower
+    volumes: [/var/run/docker.sock:/var/run/docker.sock]
+    command: --interval 86400   # check daily
+```
+
+**Binary / systemd:** enable the built-in updater in `vaults3.yaml`. With
+`apply: true` it downloads the new release for your platform, **verifies its
+SHA-256 checksum**, swaps the binary, and restarts into the new version
+(checked daily; never auto-crosses a major version):
+
+```yaml
+auto_update:
+  enabled: true     # daily check + dashboard banner
+  apply: true       # also install automatically (omit for notify-only)
+```
+
+The current/latest version is also exposed at `GET /api/v1/version`.
+
 ## Contributing
 
 Contributions are welcome! See **[CONTRIBUTING.md](CONTRIBUTING.md)** for build,
