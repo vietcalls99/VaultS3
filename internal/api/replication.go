@@ -40,29 +40,27 @@ func (h *APIHandler) handleReplicationStatus(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	peers := make([]replicationPeerResponse, 0, len(statuses))
-	for _, s := range statuses {
-		lastSync := ""
-		if s.LastSyncTime > 0 {
-			lastSync = time.Unix(s.LastSyncTime, 0).UTC().Format(time.RFC3339)
-		}
-		// Try to find URL from config
-		url := ""
-		for _, p := range h.cfg.Replication.Peers {
-			if p.Name == s.Peer {
-				url = p.URL
-				break
+	// List the configured peers (the ones the worker actually replicates to) and
+	// enrich each with its live status. Deriving the list from status records
+	// instead hid freshly-configured peers that hadn't synced anything yet, so the
+	// dashboard showed "No replication peers configured" despite peers=N (issue #10).
+	peers := make([]replicationPeerResponse, 0, len(h.cfg.Replication.Peers))
+	for _, p := range h.cfg.Replication.Peers {
+		resp := replicationPeerResponse{Name: p.Name, URL: p.URL}
+		for _, s := range statuses {
+			if s.Peer != p.Name {
+				continue
 			}
+			if s.LastSyncTime > 0 {
+				resp.LastSync = time.Unix(s.LastSyncTime, 0).UTC().Format(time.RFC3339)
+			}
+			resp.QueueDepth = s.QueueDepth
+			resp.TotalSynced = s.TotalSynced
+			resp.TotalFailed = s.TotalFailed
+			resp.LastError = s.LastError
+			break
 		}
-		peers = append(peers, replicationPeerResponse{
-			Name:        s.Peer,
-			URL:         url,
-			QueueDepth:  s.QueueDepth,
-			LastSync:    lastSync,
-			TotalSynced: s.TotalSynced,
-			TotalFailed: s.TotalFailed,
-			LastError:   s.LastError,
-		})
+		peers = append(peers, resp)
 	}
 
 	writeJSON(w, http.StatusOK, replicationStatusResponse{

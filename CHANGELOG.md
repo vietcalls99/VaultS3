@@ -6,6 +6,16 @@ semantic-ish versioning via git tags (`vMAJOR.MINOR.PATCH`).
 
 ## [Unreleased]
 
+## [4.2.16] - 2026-06-29
+### Fixed
+- **Replication dashboard showed "No replication peers configured" despite peers
+  being set in `vaults3.yaml` (issue #10).** The replication status endpoint built
+  its peer list from status records instead of the configured peers, so a peer
+  that hadn't replicated anything yet (no status record) was invisible — even
+  though the worker had loaded it (`peers=N` in the log). It now lists the
+  configured peers and enriches each with its live status, so a freshly-configured
+  peer shows immediately (with zero activity until it syncs).
+
 ## [4.2.15] - 2026-06-29
 ### Added
 - **Small-file packing (experimental, issue #7).** A new `packing` storage mode
@@ -259,7 +269,8 @@ semantic-ish versioning via git tags (`vMAJOR.MINOR.PATCH`).
   dashboard, CLI, versioning, WORM, notifications, full-text search, FUSE mount,
   and multi-platform release binaries + Docker images.
 
-[Unreleased]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.15...HEAD
+[Unreleased]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.16...HEAD
+[4.2.16]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.15...v4.2.16
 [4.2.15]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.12...v4.2.15
 [4.2.12]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.11...v4.2.12
 [4.2.11]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.10...v4.2.11

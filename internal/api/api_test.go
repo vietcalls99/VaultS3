@@ -342,3 +342,35 @@ func TestValidateObjectKey(t *testing.T) {
 		t.Error("expected >1024 char key to be invalid")
 	}
 }
+
+// TestReplicationStatusListsConfiguredPeers is the regression guard for issue #10:
+// a peer configured in vaults3.yaml must appear on the dashboard even before it has
+// replicated anything (i.e. with no status record yet). Previously the peer list was
+// derived from status records, so a fresh peer showed "No replication peers configured"
+// despite the worker loading it.
+func TestReplicationStatusListsConfiguredPeers(t *testing.T) {
+	h, _ := newTestAPI(t)
+	h.cfg.Replication.Enabled = true
+	h.cfg.Replication.Peers = []config.ReplicationPeer{
+		{Name: "racknerd", URL: "https://s3.target.example.com"},
+	}
+	// No status records written (fresh peer, nothing synced yet).
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/api/v1/replication/status", nil)
+	h.handleReplicationStatus(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status: %d body=%s", rr.Code, rr.Body.String())
+	}
+	var resp replicationStatusResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !resp.Enabled {
+		t.Error("expected enabled=true")
+	}
+	if len(resp.Peers) != 1 || resp.Peers[0].Name != "racknerd" || resp.Peers[0].URL != "https://s3.target.example.com" {
+		t.Fatalf("configured peer should be listed even with no status records, got %+v", resp.Peers)
+	}
+}
