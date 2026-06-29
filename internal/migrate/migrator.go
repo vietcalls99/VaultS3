@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"sync"
 	"time"
 
@@ -239,32 +240,58 @@ func (m *Manager) run(ctx context.Context, src *Source, job *Job) {
 }
 
 func (m *Manager) copyOne(src *Source, bucket string, o ObjectInfo) error {
-	body, ct, size, err := src.GetObject(bucket, o.Key)
+	obj, err := src.GetObject(bucket, o.Key)
 	if err != nil {
 		return err
 	}
-	defer body.Close()
+	defer obj.Body.Close()
 
+	size := obj.Size
 	if size < 0 { // content length unknown — fall back to the listed size
 		size = o.Size
 	}
 	// Stream straight from the source response into the local engine — no
 	// buffering of the whole object in memory.
-	written, etag, err := m.engine.PutObject(bucket, o.Key, body, size)
+	written, etag, err := m.engine.PutObject(bucket, o.Key, obj.Body, size)
 	if err != nil {
 		return err
 	}
+	ct := obj.ContentType
 	if ct == "" {
 		ct = "application/octet-stream"
 	}
-	return m.store.PutObjectMeta(metadata.ObjectMeta{
-		Bucket:       bucket,
-		Key:          o.Key,
-		ContentType:  ct,
-		ETag:         etag,
-		Size:         written,
-		LastModified: time.Now().Unix(),
-	})
+	// Preserve the source's original metadata so the migration is a faithful copy,
+	// not a same-day re-upload (issue #13). Prefer the GET Last-Modified, fall back
+	// to the listed time, and only stamp "now" if the source gave us neither.
+	lastModified := obj.LastModified
+	if lastModified == 0 {
+		lastModified = o.LastModified
+	}
+	if lastModified == 0 {
+		lastModified = time.Now().Unix()
+	}
+	if err := m.store.PutObjectMeta(metadata.ObjectMeta{
+		Bucket:             bucket,
+		Key:                o.Key,
+		ContentType:        ct,
+		ETag:               etag,
+		Size:               written,
+		LastModified:       lastModified,
+		UserMetadata:       obj.UserMetadata,
+		ContentEncoding:    obj.ContentEncoding,
+		ContentDisposition: obj.ContentDisposition,
+		CacheControl:       obj.CacheControl,
+		ContentLanguage:    obj.ContentLanguage,
+	}); err != nil {
+		return err
+	}
+	// Also stamp the on-disk file's mtime so the filesystem-walk listing (used for
+	// non-versioned buckets) shows the preserved date, not the write time. Best
+	// effort: object stores that don't keep one-file-per-object (e.g. packing) just
+	// keep the authoritative date in metadata, which the S3 API already reports.
+	mt := time.Unix(lastModified, 0)
+	_ = os.Chtimes(m.engine.ObjectPath(bucket, o.Key), mt, mt)
+	return nil
 }
 
 func (m *Manager) bump(job *Job, fn func(*Job)) {

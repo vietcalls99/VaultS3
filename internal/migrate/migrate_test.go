@@ -312,12 +312,12 @@ func TestGetObjectSpecialCharsSignature(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	body, _, _, err := NewSource(srv.URL, access, secret, region, 10).GetObject(bucket, key)
+	obj, err := NewSource(srv.URL, access, secret, region, 10).GetObject(bucket, key)
 	if err != nil {
 		t.Fatalf("GetObject with special chars (&, $, space): %v", err)
 	}
-	defer body.Close()
-	if b, _ := io.ReadAll(body); string(b) != "AUDIO" {
+	defer obj.Body.Close()
+	if b, _ := io.ReadAll(obj.Body); string(b) != "AUDIO" {
 		t.Fatalf("body = %q, want AUDIO", b)
 	}
 }
@@ -430,5 +430,58 @@ func TestMigrateRejectsDuplicate(t *testing.T) {
 	waitDone(t, m, id1)
 	if _, err := m.Start(cfg); err != nil {
 		t.Fatalf("Start after first finished should be allowed: %v", err)
+	}
+}
+
+// TestMigratePreservesMetadata verifies a migration carries over the source's
+// original modified time, user metadata, and content headers instead of stamping
+// today's date — so it's a faithful copy, not a same-day re-upload (issue #13).
+func TestMigratePreservesMetadata(t *testing.T) {
+	orig := time.Date(2020, 1, 15, 8, 30, 0, 0, time.UTC)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("list-type") == "2" {
+			w.Header().Set("Content-Type", "application/xml")
+			fmt.Fprintf(w, `<ListBucketResult><Contents><Key>report.pdf</Key><Size>5</Size>`+
+				`<ETag>"x"</ETag><LastModified>%s</LastModified></Contents>`+
+				`<IsTruncated>false</IsTruncated></ListBucketResult>`, orig.Format(time.RFC3339))
+			return
+		}
+		// GetObject — return the metadata-rich headers a real S3 source would.
+		w.Header().Set("Content-Type", "application/pdf")
+		w.Header().Set("Last-Modified", orig.Format(http.TimeFormat))
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Set("Cache-Control", "max-age=3600")
+		w.Header().Set("Content-Language", "en")
+		w.Header().Set("X-Amz-Meta-Author", "matt")
+		w.Header().Set("X-Amz-Meta-Project", "archive")
+		w.Write([]byte("HELLO"))
+	}))
+	defer srv.Close()
+
+	store, eng := newLocal(t)
+	m := NewManager(store, eng)
+	id, err := m.Start(StartConfig{Endpoint: srv.URL, AccessKey: "k", SecretKey: "s", Buckets: []string{"old"}})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if job := waitDone(t, m, id); job.Status != "completed" || job.Copied != 1 {
+		t.Fatalf("status=%s copied=%d err=%s", job.Status, job.Copied, job.Error)
+	}
+
+	meta, err := store.GetObjectMeta("old", "report.pdf")
+	if err != nil {
+		t.Fatalf("GetObjectMeta: %v", err)
+	}
+	if meta.LastModified != orig.Unix() {
+		t.Errorf("LastModified = %d (%s), want preserved %d (%s)",
+			meta.LastModified, time.Unix(meta.LastModified, 0).UTC(), orig.Unix(), orig)
+	}
+	if meta.UserMetadata["author"] != "matt" || meta.UserMetadata["project"] != "archive" {
+		t.Errorf("UserMetadata = %v, want author=matt project=archive", meta.UserMetadata)
+	}
+	if meta.ContentType != "application/pdf" || meta.ContentEncoding != "gzip" ||
+		meta.CacheControl != "max-age=3600" || meta.ContentLanguage != "en" {
+		t.Errorf("content headers not preserved: type=%q enc=%q cache=%q lang=%q",
+			meta.ContentType, meta.ContentEncoding, meta.CacheControl, meta.ContentLanguage)
 	}
 }

@@ -41,15 +41,38 @@ func NewSource(endpoint, accessKey, secretKey, region string, timeoutSecs int) *
 		accessKey: accessKey,
 		secretKey: secretKey,
 		region:    region,
-		client:    &http.Client{Timeout: time.Duration(timeoutSecs) * time.Second},
+		client: &http.Client{
+			Timeout: time.Duration(timeoutSecs) * time.Second,
+			// Copy object bytes verbatim. Without this, Go transparently gunzips a
+			// response with Content-Encoding: gzip — which would store DECODED bytes
+			// while we record Content-Encoding: gzip (corruption) and also strips the
+			// header we want to preserve (issue #13).
+			Transport: &http.Transport{DisableCompression: true},
+		},
 	}
 }
 
 // ObjectInfo is a listed source object.
 type ObjectInfo struct {
-	Key  string
-	Size int64
-	ETag string
+	Key          string
+	Size         int64
+	ETag         string
+	LastModified int64 // source's original modified time (unix); 0 if unparsable
+}
+
+// ObjectData is a fetched source object: its body plus the metadata worth
+// carrying over to VaultS3 so a migration is a faithful copy, not a same-day
+// re-upload (issue #13). The caller must Close Body.
+type ObjectData struct {
+	Body               io.ReadCloser
+	ContentType        string
+	Size               int64 // -1 if unknown
+	LastModified       int64 // from the source's Last-Modified header; 0 if absent
+	UserMetadata       map[string]string
+	ContentEncoding    string
+	ContentDisposition string
+	CacheControl       string
+	ContentLanguage    string
 }
 
 type listAllMyBucketsResult struct {
@@ -84,9 +107,10 @@ type listBucketResult struct {
 	IsTruncated           bool   `xml:"IsTruncated"`
 	NextContinuationToken string `xml:"NextContinuationToken"`
 	Contents              []struct {
-		Key  string `xml:"Key"`
-		Size int64  `xml:"Size"`
-		ETag string `xml:"ETag"`
+		Key          string `xml:"Key"`
+		Size         int64  `xml:"Size"`
+		ETag         string `xml:"ETag"`
+		LastModified string `xml:"LastModified"`
 	} `xml:"Contents"`
 }
 
@@ -109,7 +133,12 @@ func (s *Source) ListObjects(bucket, continuationToken string) (objs []ObjectInf
 		return nil, "", fmt.Errorf("parse ListObjectsV2 response: %w", err)
 	}
 	for _, c := range res.Contents {
-		objs = append(objs, ObjectInfo{Key: c.Key, Size: c.Size, ETag: c.ETag})
+		var lm int64
+		// S3 lists timestamps in ISO-8601 (RFC3339); keep 0 if a source deviates.
+		if t, err := time.Parse(time.RFC3339, c.LastModified); err == nil {
+			lm = t.Unix()
+		}
+		objs = append(objs, ObjectInfo{Key: c.Key, Size: c.Size, ETag: c.ETag, LastModified: lm})
 	}
 	if res.IsTruncated {
 		next = res.NextContinuationToken
@@ -117,9 +146,10 @@ func (s *Source) ListObjects(bucket, continuationToken string) (objs []ObjectInf
 	return objs, next, nil
 }
 
-// GetObject opens an object's body for streaming. The caller must Close it.
-// Returns the body, content type, and content length (-1 if unknown).
-func (s *Source) GetObject(bucket, key string) (io.ReadCloser, string, int64, error) {
+// GetObject opens an object's body for streaming and captures the metadata worth
+// preserving (modified time, user metadata, content headers). The caller must
+// Close the returned Body.
+func (s *Source) GetObject(bucket, key string) (*ObjectData, error) {
 	// Strict AWS URI-encoding so the wire path and the SigV4 canonical URI agree.
 	// Go's default path escaping leaves sub-delimiters like '&' and '$' literal,
 	// which made the source's signature differ from the server's → 403
@@ -127,20 +157,46 @@ func (s *Source) GetObject(bucket, key string) (io.ReadCloser, string, int64, er
 	full := s.endpoint + uriEncodePath("/"+bucket+"/"+key)
 	req, err := http.NewRequest(http.MethodGet, full, nil)
 	if err != nil {
-		return nil, "", 0, err
+		return nil, err
 	}
 	s.sign(req)
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return nil, "", 0, err // network error — retryable
+		return nil, err // network error — retryable
 	}
 	if resp.StatusCode != http.StatusOK {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		resp.Body.Close()
-		return nil, "", 0, &httpError{StatusCode: resp.StatusCode,
+		return nil, &httpError{StatusCode: resp.StatusCode,
 			msg: fmt.Sprintf("source GET %s/%s returned %d: %s", bucket, key, resp.StatusCode, string(raw))}
 	}
-	return resp.Body, resp.Header.Get("Content-Type"), resp.ContentLength, nil
+
+	var lm int64
+	if t, err := http.ParseTime(resp.Header.Get("Last-Modified")); err == nil {
+		lm = t.Unix()
+	}
+	// User metadata travels as x-amz-meta-<name> response headers.
+	var userMeta map[string]string
+	for name, vals := range resp.Header {
+		if len(vals) > 0 && len(name) > len("X-Amz-Meta-") && strings.EqualFold(name[:len("X-Amz-Meta-")], "X-Amz-Meta-") {
+			if userMeta == nil {
+				userMeta = make(map[string]string)
+			}
+			userMeta[strings.ToLower(name[len("X-Amz-Meta-"):])] = vals[0]
+		}
+	}
+
+	return &ObjectData{
+		Body:               resp.Body,
+		ContentType:        resp.Header.Get("Content-Type"),
+		Size:               resp.ContentLength,
+		LastModified:       lm,
+		UserMetadata:       userMeta,
+		ContentEncoding:    resp.Header.Get("Content-Encoding"),
+		ContentDisposition: resp.Header.Get("Content-Disposition"),
+		CacheControl:       resp.Header.Get("Cache-Control"),
+		ContentLanguage:    resp.Header.Get("Content-Language"),
+	}, nil
 }
 
 // httpError carries the HTTP status so the migrator can distinguish transient

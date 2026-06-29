@@ -6,6 +6,22 @@ semantic-ish versioning via git tags (`vMAJOR.MINOR.PATCH`).
 
 ## [Unreleased]
 
+## [4.2.19] - 2026-06-29
+### Fixed
+- **S3 migration now preserves each object's original metadata instead of
+  stamping today's date (issue #13).** Migrated objects kept their content but were
+  written with `LastModified = now`, so a migration looked like everything was
+  created on migration day — breaking lifecycle rules, sort-by-date, and audit
+  trails. Migration now carries over the source's original modified time, user
+  metadata (`x-amz-meta-*`), and content headers (Content-Encoding/Disposition/
+  Cache-Control/Language), and stamps the on-disk file mtime to match so every
+  surface (dashboard, S3 `HEAD`/`GET`/`ListObjectsV2`) reflects the real date.
+  Because VaultS3's migrator writes directly to its own store (not via PutObject),
+  it can preserve the original date where `mc mirror --preserve` structurally
+  cannot. Also fixed: the migrator now disables transparent response
+  decompression, so gzip-encoded source objects are copied verbatim rather than
+  silently decoded while keeping their `Content-Encoding: gzip` header.
+
 ## [4.2.18] - 2026-06-29
 ### Added
 - **Kubernetes deployment (issue #12).** A Helm chart (`deploy/helm/vaults3/`) and
@@ -292,7 +308,8 @@ semantic-ish versioning via git tags (`vMAJOR.MINOR.PATCH`).
   dashboard, CLI, versioning, WORM, notifications, full-text search, FUSE mount,
   and multi-platform release binaries + Docker images.
 
-[Unreleased]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.18...HEAD
+[Unreleased]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.19...HEAD
+[4.2.19]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.18...v4.2.19
 [4.2.18]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.17...v4.2.18
 [4.2.17]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.16...v4.2.17
 [4.2.16]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.2.15...v4.2.16
