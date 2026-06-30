@@ -5,6 +5,8 @@ All notable changes to VaultS3 are documented here. The format is based on
 semantic-ish versioning via git tags (`vMAJOR.MINOR.PATCH`).
 
 ## [Unreleased]
+
+## [4.3.1] - 2026-06-30
 ### Fixed
 - **CRITICAL: `aws-chunked` (streaming) uploads were stored corrupted.** Modern AWS
   SDKs (boto3/botocore 1.36+, aws-cli, aws-sdk-js v3) default to flexible checksums
