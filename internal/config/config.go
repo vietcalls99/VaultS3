@@ -275,6 +275,28 @@ type EncryptionConfig struct {
 	Enabled bool                `yaml:"enabled"`
 	Key     string              `yaml:"key"` // hex-encoded 32-byte key (64 hex chars) for SSE-S3
 	KMS     KMSEncryptionConfig `yaml:"kms"` // SSE-KMS configuration
+	// PerBucket switches from one server-wide key to per-bucket keys: `key` becomes
+	// the master KEK that wraps a per-bucket data key, and a bucket is encrypted only
+	// after it opts in via PUT ?encryption. See docs/design/per-bucket-encryption.md.
+	PerBucket bool `yaml:"per_bucket"`
+	// LegacyKey (hex, 32 bytes) is the previous server-wide key, used in per-bucket
+	// mode to keep reading objects written before the switch. Optional.
+	LegacyKey string `yaml:"legacy_key"`
+}
+
+// LegacyKeyBytes decodes the optional legacy global key (empty -> nil).
+func (e *EncryptionConfig) LegacyKeyBytes() ([]byte, error) {
+	if e.LegacyKey == "" {
+		return nil, nil
+	}
+	key, err := hex.DecodeString(e.LegacyKey)
+	if err != nil {
+		return nil, fmt.Errorf("legacy_key must be hex-encoded: %w", err)
+	}
+	if len(key) != 32 {
+		return nil, fmt.Errorf("legacy_key must be 32 bytes (64 hex chars), got %d", len(key))
+	}
+	return key, nil
 }
 
 type KMSEncryptionConfig struct {

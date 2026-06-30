@@ -6,8 +6,38 @@ semantic-ish versioning via git tags (`vMAJOR.MINOR.PATCH`).
 
 ## [Unreleased]
 
-## [4.2.23] - 2026-06-30
+## [4.3.0] - 2026-06-30
+### Added
+- **Per-bucket encryption keys (opt-in).** For bucket-per-tenant deployments, each
+  bucket can now be encrypted with its own key that is **not shared** with other
+  tenants — or opt out and stay plaintext. Enable with `encryption.per_bucket: true`
+  (the configured `key` becomes a master KEK); a bucket provisions its own data key
+  the first time it opts into SSE via `PUT /{bucket}?encryption`. Uses envelope
+  encryption (KEK-wrapped per-bucket data keys, AES-256-GCM), supports key **rotation**
+  and **crypto-shredding**, and keeps reading objects written before the switch via
+  `encryption.legacy_key`. Managed from the dashboard's bucket page (enable / rotate /
+  shred) and the `/api/v1/buckets/{b}/encryption` endpoints. See
+  `docs/design/per-bucket-encryption.md`. Transparent to S3 clients; opt-out buckets
+  stay plaintext.
+- **SSE-C (customer-provided encryption keys).** Operator-blind per-object encryption:
+  clients pass `x-amz-server-side-encryption-customer-*` headers; the server
+  encrypts/decrypts with the supplied key and stores only the key's MD5 (never the
+  key). Wrong/missing key is rejected on GET/HEAD. (PUT/GET/HEAD on the non-versioned
+  path.)
 ### Fixed
+- **Multipart uploads now respect encryption.** `CompleteMultipartUpload` wrote the
+  assembled object straight to disk, bypassing the encryption layer — so multipart
+  (i.e. large) objects were stored **plaintext** even in encrypted buckets. The
+  assembled object is now written through the engine, so per-bucket and SSE-S3/KMS
+  encryption cover multipart objects too. (Non-encrypted deployments keep the fast
+  direct path.)
+- **Presigned URLs from standard S3 clients were rejected (`SignatureDoesNotMatch`).**
+  The presigned-URL verifier encoded the canonical request path with a function
+  that escaped `/` to `%2F`, while header-auth was already fixed (issue #9) to
+  preserve slashes. Since every key path has slashes, presigned GET/PUT URLs from
+  boto3 / aws-cli / the SDKs always failed. Now uses the per-segment path encoder,
+  matching header auth — presigned GET/PUT verified end-to-end (incl. keys with
+  `&`, `$`, spaces).
 - **Object browser slow + capped on large buckets (issue #16 follow-up).** Two
   bugs in the dashboard file browser (`/api/v1/objects`):
   - *Backend:* for **non-versioned** buckets the listing fell back to a full
@@ -20,6 +50,12 @@ semantic-ish versioning via git tags (`vMAJOR.MINOR.PATCH`).
     visible. It now pulls 1,000 per request with a **Load more** control (server
     cursor `nextStartAfter`, folder roll-ups de-duplicated across pages), so the
     whole bucket is reachable.
+  - *Folder-heavy buckets:* folders were rolled up **client-side** from a flat page,
+    so a bucket with thousands of folders surfaced only a handful per page. Listing
+    now collapses folders **server-side** (`ListLatestObjectsDelimited`) and seeks
+    past each folder's contents — a folder level returns up to ~1,000 folders per
+    page and is O(folders) instead of O(objects). Measured: a 5,000-folder bucket
+    lists in 5 pages (~1.8ms/page) instead of hundreds.
 
 ## [4.2.22] - 2026-06-30
 ### Fixed

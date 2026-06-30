@@ -55,6 +55,21 @@ export function setBucketVersioning(name: string, versioning: string): Promise<v
   })
 }
 
+export interface BucketEncryption {
+  available: boolean // per-bucket encryption configured on the server
+  enabled: boolean
+  keyVersion?: number
+  algorithm?: string
+}
+
+export function getBucketEncryption(name: string): Promise<BucketEncryption> {
+  return apiFetch<BucketEncryption>(`/buckets/${name}/encryption`)
+}
+
+export function bucketEncryptionAction(name: string, action: 'enable' | 'rotate' | 'shred'): Promise<void> {
+  return apiFetch<void>(`/buckets/${name}/encryption/${action}`, { method: 'POST' })
+}
+
 // Lifecycle
 export interface LifecycleRule {
   expirationDays: number

@@ -164,7 +164,9 @@ func (h *ObjectHandler) CompleteMultipartUpload(w http.ResponseWriter, r *http.R
 		return req.Parts[i].PartNumber < req.Parts[j].PartNumber
 	})
 
-	// Assemble the final object
+	// Assemble the parts. When encryption is enabled we assemble into a temp file
+	// and write the object through engine.PutObject so it is encrypted at rest
+	// (per-bucket or SSE); otherwise we assemble straight to the final path.
 	objPath := h.engine.ObjectPath(bucket, key)
 	if err := os.MkdirAll(filepath.Dir(objPath), 0755); err != nil {
 		slog.Error("internal error", "error", err)
@@ -172,33 +174,37 @@ func (h *ObjectHandler) CompleteMultipartUpload(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	outFile, err := os.Create(objPath)
+	assemblePath := objPath
+	if h.encryptionEnabled {
+		assemblePath = filepath.Join(h.multipartDir(uploadID), "assembled.tmp")
+	}
+	outFile, err := os.Create(assemblePath)
 	if err != nil {
 		slog.Error("internal error", "error", err)
 		writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
 	}
-	defer outFile.Close()
 
 	// Concatenate parts and compute multipart ETag
 	var totalSize int64
 	combinedHash := md5.New()
 	var partBoundaries []int64
+	missingPart := 0
 
 	for _, part := range req.Parts {
 		partPath := filepath.Join(h.multipartDir(uploadID), fmt.Sprintf("part-%05d", part.PartNumber))
 		pf, err := os.Open(partPath)
 		if err != nil {
-			os.Remove(objPath)
-			writeS3Error(w, "InvalidPart", fmt.Sprintf("Part %d not found", part.PartNumber), http.StatusBadRequest)
-			return
+			missingPart = part.PartNumber
+			break
 		}
 
 		partHash := md5.New()
 		written, err := io.Copy(outFile, io.TeeReader(pf, partHash))
 		pf.Close()
 		if err != nil {
-			os.Remove(objPath)
+			outFile.Close()
+			os.Remove(assemblePath)
 			slog.Error("internal error", "error", err)
 			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 			return
@@ -207,6 +213,32 @@ func (h *ObjectHandler) CompleteMultipartUpload(w http.ResponseWriter, r *http.R
 		totalSize += written
 		partBoundaries = append(partBoundaries, totalSize)
 		combinedHash.Write(partHash.Sum(nil))
+	}
+	outFile.Close()
+	if missingPart != 0 {
+		os.Remove(assemblePath)
+		writeS3Error(w, "InvalidPart", fmt.Sprintf("Part %d not found", missingPart), http.StatusBadRequest)
+		return
+	}
+
+	// When encrypting, write the assembled object through the engine (applies the
+	// per-bucket / SSE key), then drop the temp file.
+	if h.encryptionEnabled {
+		af, err := os.Open(assemblePath)
+		if err != nil {
+			os.Remove(assemblePath)
+			slog.Error("internal error", "error", err)
+			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
+			return
+		}
+		_, _, perr := h.engine.PutObject(bucket, key, af, totalSize)
+		af.Close()
+		os.Remove(assemblePath)
+		if perr != nil {
+			slog.Error("internal error", "error", perr)
+			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	// S3 multipart ETag: md5(md5(part1) + md5(part2) + ...)-N

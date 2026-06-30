@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/Kodiqa-Solutions/VaultS3/internal/bucketcrypto"
 	"github.com/Kodiqa-Solutions/VaultS3/internal/metadata"
 	"github.com/Kodiqa-Solutions/VaultS3/internal/metrics"
 	"github.com/Kodiqa-Solutions/VaultS3/internal/ratelimit"
@@ -73,6 +74,11 @@ func NewHandler(store metadata.StoreAPI, engine storage.Engine, auth *Authentica
 	h.buckets = &BucketHandler{store: store, engine: engine}
 	h.objects = &ObjectHandler{store: store, engine: engine, encryptionEnabled: encryptionEnabled}
 	return h
+}
+
+// SetKeyManager wires the per-bucket encryption key manager (may be nil).
+func (h *Handler) SetKeyManager(m *bucketcrypto.Manager) {
+	h.buckets.keyMgr = m
 }
 
 // SetActivityFunc sets the callback for recording S3 activity.

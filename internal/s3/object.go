@@ -210,6 +210,17 @@ func (h *ObjectHandler) PutObject(w http.ResponseWriter, r *http.Request, bucket
 	userMeta := parseUserMetadata(r)
 	tags := parseInlineTags(r)
 
+	// SSE-C (customer-provided keys). Supported on the non-versioned path for now.
+	ssecKey, ssecErr := parseSSECHeaders(r)
+	if ssecErr != nil {
+		writeS3Error(w, "InvalidArgument", ssecErr.Error(), http.StatusBadRequest)
+		return
+	}
+	if ssecKey != nil && (versioning == "Enabled" || versioning == "Suspended") {
+		writeS3Error(w, "NotImplemented", "SSE-C is not yet supported on versioned buckets", http.StatusNotImplemented)
+		return
+	}
+
 	if versioning == "Enabled" {
 		versionID := generateVersionID()
 
@@ -366,11 +377,23 @@ func (h *ObjectHandler) PutObject(w http.ResponseWriter, r *http.Request, bucket
 	}
 
 	// Non-versioned path
+	plainSize := int64(len(body))
+	if ssecKey != nil {
+		sealed, serr := ssecSeal(ssecKey, body)
+		if serr != nil {
+			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
+			return
+		}
+		body = sealed
+	}
 	written, etag, err := h.engine.PutObject(bucket, key, bytes.NewReader(body), int64(len(body)))
 	if err != nil {
 		slog.Error("internal error", "error", err)
 		writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
+	}
+	if ssecKey != nil {
+		written = plainSize // report the plaintext size, not the SSE-C ciphertext size
 	}
 
 	meta := metadata.ObjectMeta{
@@ -392,11 +415,17 @@ func (h *ObjectHandler) PutObject(w http.ResponseWriter, r *http.Request, bucket
 		ChecksumCRC32C:     ccrc32c,
 		ChecksumSHA1:       csha1,
 	}
+	if ssecKey != nil {
+		meta.SSECustomerKeyMD5 = ssecKey.keyMD5
+	}
 
 	h.store.PutObjectMeta(meta)
 
 	w.Header().Set("ETag", etag)
-	if h.encryptionEnabled {
+	if ssecKey != nil {
+		w.Header().Set(hdrSSECAlgo, "AES256")
+		w.Header().Set(hdrSSECKeyMD5, ssecKey.keyMD5)
+	} else if h.encryptionEnabled {
 		w.Header().Set("X-Amz-Server-Side-Encryption", "AES256")
 	}
 	setChecksumHeaders(w, &meta)
@@ -476,6 +505,32 @@ func (h *ObjectHandler) GetObject(w http.ResponseWriter, r *http.Request, bucket
 		}
 	}
 	defer reader.Close()
+
+	// SSE-C: object was encrypted with a customer-provided key. Require + verify it,
+	// then decrypt into an in-memory reader so range/part logic runs on plaintext.
+	if meta != nil && meta.SSECustomerKeyMD5 != "" {
+		ssecKey, perr := parseSSECHeaders(r)
+		if perr != nil || ssecKey == nil {
+			writeS3Error(w, "InvalidArgument", "object is SSE-C encrypted; a customer key is required", http.StatusBadRequest)
+			return
+		}
+		if ssecKey.keyMD5 != meta.SSECustomerKeyMD5 {
+			writeS3Error(w, "AccessDenied", "SSE-C key does not match the one used to encrypt this object", http.StatusForbidden)
+			return
+		}
+		sealed, rerr := io.ReadAll(reader)
+		if rerr != nil {
+			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
+			return
+		}
+		plain, derr := ssecOpen(ssecKey, sealed)
+		if derr != nil {
+			writeS3Error(w, "AccessDenied", "SSE-C decryption failed", http.StatusForbidden)
+			return
+		}
+		reader = ssecReader{bytes.NewReader(plain)}
+		size = int64(len(plain))
+	}
 
 	// Conditional GET: check preconditions before sending body
 	if checkGetPreconditions(w, r, meta) {
@@ -857,6 +912,19 @@ func (h *ObjectHandler) HeadObject(w http.ResponseWriter, r *http.Request, bucke
 		return
 	}
 
+	// SSE-C objects require the matching customer key, even for HEAD.
+	if meta.SSECustomerKeyMD5 != "" {
+		ssecKey, perr := parseSSECHeaders(r)
+		if perr != nil || ssecKey == nil {
+			writeS3Error(w, "InvalidArgument", "object is SSE-C encrypted; a customer key is required", http.StatusBadRequest)
+			return
+		}
+		if ssecKey.keyMD5 != meta.SSECustomerKeyMD5 {
+			writeS3Error(w, "AccessDenied", "SSE-C key does not match", http.StatusForbidden)
+			return
+		}
+	}
+
 	w.Header().Set("Content-Type", meta.ContentType)
 	w.Header().Set("ETag", meta.ETag)
 	w.Header().Set("Content-Length", strconv.FormatInt(meta.Size, 10))
@@ -868,7 +936,10 @@ func (h *ObjectHandler) HeadObject(w http.ResponseWriter, r *http.Request, bucke
 	if meta.PartsCount > 0 {
 		w.Header().Set("X-Amz-Mp-Parts-Count", strconv.Itoa(meta.PartsCount))
 	}
-	if h.encryptionEnabled {
+	if meta.SSECustomerKeyMD5 != "" {
+		w.Header().Set(hdrSSECAlgo, "AES256")
+		w.Header().Set(hdrSSECKeyMD5, meta.SSECustomerKeyMD5)
+	} else if h.encryptionEnabled {
 		w.Header().Set("X-Amz-Server-Side-Encryption", "AES256")
 	}
 	w.WriteHeader(http.StatusOK)

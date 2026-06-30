@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/Kodiqa-Solutions/VaultS3/internal/backup"
+	"github.com/Kodiqa-Solutions/VaultS3/internal/bucketcrypto"
 	"github.com/Kodiqa-Solutions/VaultS3/internal/config"
 	"github.com/Kodiqa-Solutions/VaultS3/internal/erasure"
 	"github.com/Kodiqa-Solutions/VaultS3/internal/lambda"
@@ -29,6 +30,7 @@ import (
 type APIHandler struct {
 	store            metadata.StoreAPI
 	engine           storage.Engine
+	keyMgr           *bucketcrypto.Manager // per-bucket encryption keys (nil if unconfigured)
 	metrics          *metrics.Collector
 	cfg              *config.Config
 	jwt              *JWTService
@@ -498,6 +500,8 @@ func (h *APIHandler) routeBucket(w http.ResponseWriter, r *http.Request, rest st
 		} else {
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		}
+	case "encryption":
+		h.handleBucketEncryption(w, r, name, keyRest)
 	case "objects":
 		if keyRest == "" {
 			// /buckets/{name}/objects — list

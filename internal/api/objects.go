@@ -12,34 +12,7 @@ import (
 	"time"
 
 	"github.com/Kodiqa-Solutions/VaultS3/internal/metadata"
-	"github.com/Kodiqa-Solutions/VaultS3/internal/storage"
 )
-
-// listObjects returns the latest objects for a bucket. Versioned (Enabled or
-// Suspended) buckets store data under .vs/, invisible to the engine's
-// filesystem walk, so the metadata store's latest-pointer index is used as the
-// source of truth. Non-versioned buckets use the engine.
-func (h *APIHandler) listObjects(bucket, prefix, startAfter string, maxKeys int) ([]storage.ObjectInfo, bool, error) {
-	// All listing goes through the BoltDB metadata index (sorted keys → seek to the
-	// page, O(log n + pageSize)), regardless of versioning. Every write path updates
-	// the store, so it is the authoritative listing source — and this avoids the
-	// O(n) filesystem walk (+ per-file ETag hashing) that made large non-versioned
-	// buckets take minutes to list (issue #16 follow-up). Mirrors the S3 API path.
-	metas, truncated, err := h.store.ListLatestObjects(bucket, prefix, startAfter, maxKeys)
-	if err != nil {
-		return nil, false, err
-	}
-	objects := make([]storage.ObjectInfo, 0, len(metas))
-	for _, m := range metas {
-		objects = append(objects, storage.ObjectInfo{
-			Key:          m.Key,
-			Size:         m.Size,
-			LastModified: m.LastModified,
-			ETag:         m.ETag,
-		})
-	}
-	return objects, truncated, nil
-}
 
 type objectListItem struct {
 	Key          string `json:"key"`
@@ -81,51 +54,29 @@ func (h *APIHandler) handleListObjects(w http.ResponseWriter, r *http.Request, b
 		}
 	}
 
-	objects, truncated, err := h.listObjects(bucket, prefix, startAfter, maxKeys)
+	// Server-side folder collapsing: the store returns folders (common prefixes)
+	// directly and seeks past their contents, so a folder level shows up to maxKeys
+	// FOLDERS per page regardless of how many objects each holds (issue #16
+	// follow-up — folder-heavy buckets used to show only a handful per page).
+	objects, prefixes, truncated, nextStartAfter, err := h.store.ListLatestObjectsDelimited(bucket, prefix, "/", startAfter, maxKeys)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list objects")
 		return
 	}
 
-	// Extract common prefixes (folders) and direct objects
-	prefixSet := make(map[string]bool)
-	var items []objectListItem
-
+	items := make([]objectListItem, 0, len(prefixes)+len(objects))
+	for _, folder := range prefixes {
+		items = append(items, objectListItem{Key: folder, IsPrefix: true})
+	}
 	for _, obj := range objects {
-		// Get the part after the current prefix
-		rel := strings.TrimPrefix(obj.Key, prefix)
-		if idx := strings.Index(rel, "/"); idx >= 0 {
-			// This object is inside a "subfolder"
-			folder := prefix + rel[:idx+1]
-			if !prefixSet[folder] {
-				prefixSet[folder] = true
-				items = append(items, objectListItem{
-					Key:      folder,
-					IsPrefix: true,
-				})
-			}
-		} else {
-			// Direct object at this level
-			ct := ""
-			if meta, err := h.store.GetObjectMeta(bucket, obj.Key); err == nil && meta != nil {
-				ct = meta.ContentType
-			}
-			items = append(items, objectListItem{
-				Key:          obj.Key,
-				Size:         obj.Size,
-				LastModified: time.Unix(obj.LastModified, 0).UTC().Format(time.RFC3339),
-				ContentType:  ct,
-			})
-		}
+		items = append(items, objectListItem{
+			Key:          obj.Key,
+			Size:         obj.Size,
+			LastModified: time.Unix(obj.LastModified, 0).UTC().Format(time.RFC3339),
+			ContentType:  obj.ContentType,
+		})
 	}
 
-	if items == nil {
-		items = []objectListItem{}
-	}
-	nextStartAfter := ""
-	if truncated && len(objects) > 0 {
-		nextStartAfter = objects[len(objects)-1].Key // last *flat* key, not last rolled-up item
-	}
 	writeJSON(w, http.StatusOK, objectListResponse{
 		Objects:        items,
 		Truncated:      truncated,

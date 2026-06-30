@@ -27,6 +27,7 @@ export interface Settings {
     erasure: boolean
     cluster: boolean
     packing: boolean
+    perBucketEncryption: boolean
     debug: boolean
   }
   lifecycle: {

@@ -28,11 +28,12 @@ type settingsResponse struct {
 		Backup      bool `json:"backup"`
 		OIDC        bool `json:"oidc"`
 		Lambda      bool `json:"lambda"`
-		Vector      bool `json:"vector"`
-		Erasure     bool `json:"erasure"`
-		Cluster     bool `json:"cluster"`
-		Packing     bool `json:"packing"`
-		Debug       bool `json:"debug"`
+		Vector              bool `json:"vector"`
+		Erasure             bool `json:"erasure"`
+		Cluster             bool `json:"cluster"`
+		Packing             bool `json:"packing"`
+		PerBucketEncryption bool `json:"perBucketEncryption"`
+		Debug               bool `json:"debug"`
 	} `json:"features"`
 	Lifecycle struct {
 		ScanIntervalSecs   int `json:"scanIntervalSecs"`
@@ -63,6 +64,7 @@ func (h *APIHandler) handleSettings(w http.ResponseWriter, _ *http.Request) {
 	resp.Storage.MetadataDir = h.cfg.Storage.MetadataDir
 
 	resp.Features.Encryption = h.cfg.Encryption.Enabled
+	resp.Features.PerBucketEncryption = h.cfg.Encryption.PerBucket
 	resp.Features.Compression = h.cfg.Compression.Enabled
 	resp.Features.Packing = h.cfg.Packing.Enabled
 	resp.Features.AccessLog = h.cfg.Logging.Enabled

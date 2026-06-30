@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>VaultS3 — Lightweight S3-Compatible Object Storage</title>
   <meta name="description" content="Self-hosted S3-compatible object storage. Single binary, under 80MB RAM, built-in dashboard, erasure coding, Raft clustering, active-active replication, and built-in semantic / vector (RAG) search. The maintained, lightweight alternative to MinIO.">
-  <meta name="keywords" content="s3, object storage, self-hosted, minio alternative, migrate from minio, minio replacement, golang, dashboard, lightweight, erasure coding, raft clustering, vector search, semantic search, rag, vector database, kubernetes, helm chart, k8s deployment, scalable object storage, millions of objects">
+  <meta name="keywords" content="s3, object storage, self-hosted, minio alternative, migrate from minio, minio replacement, golang, dashboard, lightweight, erasure coding, raft clustering, vector search, semantic search, rag, vector database, kubernetes, helm chart, k8s deployment, scalable object storage, millions of objects, per-tenant encryption, byok, sse-c">
   <meta property="og:title" content="VaultS3 — Lightweight S3-Compatible Object Storage">
   <meta property="og:description" content="Single binary, under 80MB RAM, built-in dashboard, erasure coding, clustering, and built-in semantic / vector (RAG) search. The maintained, lightweight alternative to MinIO.">
   <meta property="og:type" content="website">
@@ -787,6 +787,13 @@
           </div>
           <h3>Versioning &amp; WORM</h3>
           <p>Per-bucket versioning with a git-like diff viewer, legal hold &amp; retention (GOVERNANCE/COMPLIANCE), one-click rollback.</p>
+        </div>
+        <div class="feature-card reveal">
+          <div class="feature-icon green">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+          </div>
+          <h3>Per-bucket Encryption</h3>
+          <p>Give each tenant's bucket its own AES-256 key — not shared with others, or opt out and stay plaintext. Envelope encryption with key rotation and crypto-shredding, plus SSE-C (customer-provided keys) for operator-blind encryption.</p>
         </div>
         <div class="feature-card reveal">
           <div class="feature-icon green">

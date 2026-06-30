@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Kodiqa-Solutions/VaultS3/internal/bucketcrypto"
 	"github.com/Kodiqa-Solutions/VaultS3/internal/metadata"
 	"github.com/Kodiqa-Solutions/VaultS3/internal/storage"
 )
@@ -50,6 +51,7 @@ func validateEndpointURL(rawURL string) error {
 type BucketHandler struct {
 	store  metadata.StoreAPI
 	engine storage.Engine
+	keyMgr *bucketcrypto.Manager // per-bucket encryption keys (nil if unconfigured)
 }
 
 // ListBuckets responds to GET / with a list of all buckets.
@@ -799,6 +801,15 @@ func (h *BucketHandler) PutBucketEncryption(w http.ResponseWriter, r *http.Reque
 		slog.Error("internal error", "error", err)
 		writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
 		return
+	}
+	// Provision a per-bucket data key (generate + wrap + store) the first time a
+	// bucket opts into SSE-S3, when a master key is configured. Idempotent.
+	if h.keyMgr != nil && rule.DefaultEncryption.SSEAlgorithm == "AES256" {
+		if err := h.keyMgr.EnableBucket(bucket); err != nil {
+			slog.Error("provision per-bucket key", "bucket", bucket, "error", err)
+			writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
+			return
+		}
 	}
 	w.WriteHeader(http.StatusOK)
 }

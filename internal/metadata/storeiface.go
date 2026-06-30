@@ -114,6 +114,7 @@ type StoreAPI interface {
 	PutObjectVersion(meta ObjectMeta) error
 	BucketStats(bucket string) (BucketStat, bool, error)
 	SetBucketStats(bucket string, stat BucketStat) error
+	ListLatestObjectsDelimited(bucket, prefix, delimiter, startAfter string, maxKeys int) ([]ObjectMeta, []string, bool, string, error)
 	PutPart(uploadID string, part PartInfo) error
 	PutPublicAccessBlock(bucket string, cfg PublicAccessBlockConfig) error
 	PutReplicationConfig(bucket, data string) error

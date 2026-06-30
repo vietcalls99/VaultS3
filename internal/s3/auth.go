@@ -267,9 +267,16 @@ func (a *Authenticator) authenticatePresigned(r *http.Request) (*iam.Identity, e
 		}
 	}
 
+	// Canonical URI must preserve '/' (per-segment encoding), matching the
+	// header-auth path (issue #9). Using uriEncode() here escaped every '/' to
+	// %2F, so presigned URLs from boto3/aws-cli/SDKs always failed verification.
+	uri := uriEncodePath(r.URL.Path)
+	if uri == "" {
+		uri = "/"
+	}
 	canonicalRequest := fmt.Sprintf("%s\n%s\n%s\n%s\n%s\nUNSIGNED-PAYLOAD",
 		r.Method,
-		uriEncode(r.URL.Path),
+		uri,
 		canonicalParams.Encode(),
 		canonicalHeaders,
 		signedHeaders,

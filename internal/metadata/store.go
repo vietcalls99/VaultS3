@@ -148,6 +148,11 @@ type BucketLambdaConfig struct {
 type BucketEncryptionConfig struct {
 	SSEAlgorithm string `json:"sse_algorithm"` // "AES256" or "aws:kms"
 	KMSKeyID     string `json:"kms_key_id,omitempty"`
+	// Per-bucket envelope encryption (see docs/design/per-bucket-encryption.md).
+	// KeyVersion is the current data-key version (0 = no per-bucket key); WrappedDEKs
+	// maps each version to its KEK-wrapped data key. Only wrapped keys are stored.
+	KeyVersion  int            `json:"key_version,omitempty"`
+	WrappedDEKs map[int][]byte `json:"wrapped_deks,omitempty"`
 }
 
 type PublicAccessBlockConfig struct {
@@ -268,6 +273,7 @@ type ObjectMeta struct {
 	ChecksumCRC32C     string            `json:"checksum_crc32c,omitempty"`
 	ChecksumSHA1       string            `json:"checksum_sha1,omitempty"`
 	ReplicationStatus  string            `json:"replication_status,omitempty"`
+	SSECustomerKeyMD5  string            `json:"ssec_key_md5,omitempty"` // base64(md5(customer key)) for SSE-C objects; key itself never stored
 	WebsiteRedirect    string            `json:"website_redirect,omitempty"`
 	ContentMD5         string            `json:"content_md5,omitempty"`
 	PartBoundaries     []int64           `json:"part_boundaries,omitempty"` // cumulative byte offsets for each part
@@ -1244,6 +1250,95 @@ func (s *Store) ListLatestObjects(bucket, prefix, startAfter string, maxKeys int
 		return nil, false, err
 	}
 	return objects, truncated, nil
+}
+
+// ListLatestObjectsDelimited lists the latest objects under prefix, collapsing
+// keys that share a prefix up to the first delimiter into common prefixes
+// ("folders"). It seeks PAST each folder's contents, so a folder level returns up
+// to maxKeys folders+objects no matter how many objects each folder holds — fixing
+// "folder-heavy buckets only show a few folders per page" and making the listing
+// O(folders) instead of O(objects). Returns (direct objects, common prefixes,
+// truncated, nextStartAfter).
+func (s *Store) ListLatestObjectsDelimited(bucket, prefix, delimiter, startAfter string, maxKeys int) ([]ObjectMeta, []string, bool, string, error) {
+	if delimiter == "" {
+		objs, trunc, err := s.ListLatestObjects(bucket, prefix, startAfter, maxKeys)
+		next := ""
+		if trunc && len(objs) > 0 {
+			next = objs[len(objs)-1].Key
+		}
+		return objs, nil, trunc, next, err
+	}
+
+	bucketPrefix := bucket + "/"
+	bp := []byte(bucketPrefix)
+	start := prefix
+	if startAfter > start {
+		start = startAfter
+	}
+	seekKey := []byte(bucketPrefix + start)
+
+	var objects []ObjectMeta
+	var prefixes []string
+	truncated := false
+	nextCursor := ""
+
+	err := s.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(objectsBucket)
+		c := b.Cursor()
+		k, v := c.Seek(seekKey)
+		for k != nil && bytes.HasPrefix(k, bp) {
+			var meta ObjectMeta
+			if err := json.Unmarshal(v, &meta); err != nil {
+				k, v = c.Next()
+				continue
+			}
+			if meta.Bucket != bucket {
+				k, v = c.Next()
+				continue
+			}
+			key := meta.Key
+			if prefix != "" && !strings.HasPrefix(key, prefix) {
+				break // sorted keys: first key without the prefix ends the range
+			}
+			if startAfter != "" && key <= startAfter {
+				k, v = c.Next()
+				continue
+			}
+
+			rel := key[len(prefix):]
+			if idx := strings.Index(rel, delimiter); idx >= 0 {
+				cp := prefix + rel[:idx+len(delimiter)] // e.g. "photos/2026/"
+				if maxKeys > 0 && len(objects)+len(prefixes) >= maxKeys {
+					truncated = true
+					break
+				}
+				prefixes = append(prefixes, cp)
+				nextCursor = cp + "\xff" // resume after every key under this folder
+				k, v = c.Seek(append([]byte(bucketPrefix+cp), 0xff))
+				continue
+			}
+
+			if meta.DeleteMarker { // a deleted object is not listed
+				k, v = c.Next()
+				continue
+			}
+			if maxKeys > 0 && len(objects)+len(prefixes) >= maxKeys {
+				truncated = true
+				break
+			}
+			objects = append(objects, meta)
+			nextCursor = key
+			k, v = c.Next()
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, nil, false, "", err
+	}
+	if !truncated {
+		nextCursor = ""
+	}
+	return objects, prefixes, truncated, nextCursor, nil
 }
 
 // SetLatestVersion updates the objects bucket "latest pointer" for a key.

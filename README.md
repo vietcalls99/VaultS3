@@ -87,6 +87,8 @@ VaultS3 is honest about what's battle-tested versus still maturing. Pick the lan
 - **BoltDB metadata** — Embedded key-value store, no external database needed
 - **S3 Signature V4** — Standard AWS authentication
 - **AES-256-GCM encryption at rest** — SSE-S3 (static key) and SSE-KMS (HashiCorp Vault or local key provider) encryption modes
+- **Per-bucket encryption keys** — For bucket-per-tenant setups, each bucket can be encrypted with its own key that is **not shared** with other tenants (or opt out and stay plaintext). Envelope encryption (master KEK wraps a per-bucket data key); opt in per bucket via `PUT /{bucket}?encryption` or the dashboard; supports key rotation and crypto-shredding. Enable with `encryption.per_bucket: true` — see [design doc](docs/design/per-bucket-encryption.md)
+- **SSE-C (customer-provided keys)** — Operator-blind per-object encryption: the client supplies the key per request (`x-amz-server-side-encryption-customer-*`); the server encrypts/decrypts with it and stores only the key's MD5, never the key
 - **Bucket policies** — Public-read, private, custom S3-compatible JSON policies
 - **Quota management** — Per-bucket size and object count limits
 - **Rate limiting** — Token bucket rate limiter per client IP and per access key to prevent abuse

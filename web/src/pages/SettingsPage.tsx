@@ -39,6 +39,7 @@ export default function SettingsPage() {
   const features = settings.features
   const featureList = [
     { label: 'Encryption at Rest', enabled: features.encryption },
+    { label: 'Per-Bucket Encryption', enabled: features.perBucketEncryption },
     { label: 'Compression', enabled: features.compression },
     { label: 'Access Logging', enabled: features.accessLog },
     { label: 'Rate Limiting', enabled: features.rateLimit },

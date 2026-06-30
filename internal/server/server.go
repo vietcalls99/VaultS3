@@ -20,6 +20,8 @@ import (
 	"github.com/Kodiqa-Solutions/VaultS3/internal/accesslog"
 	"github.com/Kodiqa-Solutions/VaultS3/internal/api"
 	"github.com/Kodiqa-Solutions/VaultS3/internal/backup"
+	"github.com/Kodiqa-Solutions/VaultS3/internal/bucketcrypto"
+	"github.com/Kodiqa-Solutions/VaultS3/internal/bucketkeys"
 	"github.com/Kodiqa-Solutions/VaultS3/internal/cluster"
 	"github.com/Kodiqa-Solutions/VaultS3/internal/config"
 	"github.com/Kodiqa-Solutions/VaultS3/internal/dashboard"
@@ -51,6 +53,7 @@ type Server struct {
 	store           *metadata.Store
 	metaStore       metadata.StoreAPI
 	engine          storage.Engine
+	keyMgr          *bucketcrypto.Manager
 	s3h             *s3.Handler
 	metrics         *metrics.Collector
 	activity        *api.ActivityLog
@@ -84,6 +87,7 @@ func New(cfg *config.Config) (*Server, error) {
 	}
 
 	var engine storage.Engine = fs
+	var perBucketEngine *storage.PerBucketEngine
 
 	// Wrap with compression if enabled (compress before encrypt)
 	if cfg.Compression.Enabled {
@@ -93,7 +97,25 @@ func New(cfg *config.Config) (*Server, error) {
 
 	// Wrap with encryption if enabled (SSE-S3 or SSE-KMS)
 	if cfg.Encryption.Enabled {
-		if cfg.Encryption.KMS.Enabled {
+		if cfg.Encryption.PerBucket {
+			// Per-bucket encryption: the configured key is the master KEK; objects are
+			// encrypted with a per-bucket data key (provisioned on opt-in). The manager
+			// is wired after the metadata store is ready.
+			if _, err := cfg.Encryption.KeyBytes(); err != nil {
+				return nil, fmt.Errorf("per-bucket encryption needs a valid master key: %w", err)
+			}
+			legacy, err := cfg.Encryption.LegacyKeyBytes()
+			if err != nil {
+				return nil, fmt.Errorf("encryption config: %w", err)
+			}
+			pe, err := storage.NewPerBucketEngine(engine, legacy)
+			if err != nil {
+				return nil, fmt.Errorf("init per-bucket encryption: %w", err)
+			}
+			engine = pe
+			perBucketEngine = pe
+			slog.Info("per-bucket encryption enabled (per-bucket keys, opt-in via PUT ?encryption)")
+		} else if cfg.Encryption.KMS.Enabled {
 			// SSE-KMS: use KMS for key management
 			kms := storage.NewKMS(storage.KMSConfig{
 				Provider:   cfg.Encryption.KMS.Provider,
@@ -310,6 +332,21 @@ func New(cfg *config.Config) (*Server, error) {
 
 	// Initialize S3 handler
 	s3h := s3.NewHandler(metaStore, engine, auth, cfg.Encryption.Enabled, cfg.Server.Domain, mc)
+
+	// Per-bucket encryption keys: when a master key is configured, opting a bucket
+	// into SSE-S3 provisions a per-bucket data key (see
+	// docs/design/per-bucket-encryption.md). Reuses the encryption master key as KEK.
+	var keyMgr *bucketcrypto.Manager
+	if mk, err := cfg.Encryption.KeyBytes(); err == nil && len(mk) == 32 {
+		if km, kerr := bucketkeys.NewManager(metaStore, mk); kerr == nil {
+			keyMgr = km
+			s3h.SetKeyManager(keyMgr)
+			if perBucketEngine != nil {
+				perBucketEngine.SetManager(keyMgr) // activate per-bucket crypto in the data path
+			}
+			slog.Info("per-bucket encryption key management enabled")
+		}
+	}
 
 	// Wire cluster proxy into S3 handler (use failover proxy if available)
 	if failoverProxy != nil {
@@ -582,6 +619,7 @@ func New(cfg *config.Config) (*Server, error) {
 		store:           store,
 		metaStore:       metaStore,
 		engine:          engine,
+		keyMgr:          keyMgr,
 		s3h:             s3h,
 		metrics:         mc,
 		activity:        activityLog,
@@ -619,6 +657,11 @@ func (s *Server) Run() error {
 	apiHandler.SetSearchIndex(s.searchIndex)
 	apiHandler.SetMigrator(migrate.NewManager(s.store, s.engine))
 	apiHandler.SetSnapshotManager(snapshot.NewManager(s.store))
+	// Per-bucket encryption controls (enable/rotate/shred) for the dashboard share
+	// the SAME manager as the engine, so a shred evicts the live key cache too.
+	if s.keyMgr != nil {
+		apiHandler.SetKeyManager(s.keyMgr)
+	}
 	if s.replicationFunc != nil {
 		apiHandler.SetReplicationFunc(s.replicationFunc)
 	}
