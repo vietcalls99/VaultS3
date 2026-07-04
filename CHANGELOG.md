@@ -6,6 +6,20 @@ semantic-ish versioning via git tags (`vMAJOR.MINOR.PATCH`).
 
 ## [Unreleased]
 
+## [4.4.2] - 2026-07-05
+### Added
+- **File browser grid view.** The object browser has a new grid layout with file-type
+  icons, toggleable with the existing list view from the toolbar. The choice is
+  remembered per browser. Contributed by @idpcks in #20.
+- **Collapsible dashboard sidebar.** The desktop sidebar can collapse to an icon rail
+  to give the content area more room. Contributed by @idpcks in #20.
+
+### Fixed
+- **Dragging an empty folder onto the upload dropzone no longer hangs.** It now reports
+  that no files were found instead of spinning. Contributed by @idpcks in #20.
+- **Dark-mode theme toggle icon is visible again.** It used an invalid Tailwind size
+  class (`w-4.5`) that rendered it at zero size. Contributed by @idpcks in #20.
+
 ## [4.4.1] - 2026-07-02
 ### Added
 - **Migration source presets in the dashboard.** The Migrate wizard now has a source
@@ -543,7 +557,8 @@ engines) plus an audit of the high-risk packages. Every fix has a regression tes
   dashboard, CLI, versioning, WORM, notifications, full-text search, FUSE mount,
   and multi-platform release binaries + Docker images.
 
-[Unreleased]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.1...HEAD
+[Unreleased]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.2...HEAD
+[4.4.2]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.1...v4.4.2
 [4.4.1]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.0...v4.4.1
 [4.4.0]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.3.1...v4.4.0
 [4.3.1]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.3.0...v4.3.1
