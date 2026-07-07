@@ -6,6 +6,15 @@ semantic-ish versioning via git tags (`vMAJOR.MINOR.PATCH`).
 
 ## [Unreleased]
 
+## [4.4.5] - 2026-07-07
+### Added
+- **Migration is now resumable and parallel** (issue #24). A migration that stops
+  (restart or crash) no longer re-copies the whole bucket when restarted: objects
+  already present at the destination with the same size are skipped, so it continues
+  where it left off. Objects within a bucket are also copied with a bounded worker
+  pool (configurable, default 8) instead of one at a time, so large buckets migrate
+  much faster. The job now reports a `skipped` count alongside `copied`/`failed`.
+
 ## [4.4.4] - 2026-07-05
 ### Fixed
 - **S3 clients that omit the space after commas in the SigV4 Authorization header
@@ -577,7 +586,8 @@ engines) plus an audit of the high-risk packages. Every fix has a regression tes
   dashboard, CLI, versioning, WORM, notifications, full-text search, FUSE mount,
   and multi-platform release binaries + Docker images.
 
-[Unreleased]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.4...HEAD
+[Unreleased]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.5...HEAD
+[4.4.5]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.4...v4.4.5
 [4.4.4]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.3...v4.4.4
 [4.4.3]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.2...v4.4.3
 [4.4.2]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.1...v4.4.2

@@ -17,6 +17,15 @@ import (
 // (with exponential backoff) before giving up on an object or listing.
 const maxMigrateRetries = 3
 
+// Object copies within a bucket run concurrently with a bounded worker pool, so
+// a large bucket does not migrate one object at a time. defaultConcurrency is
+// used when the request does not specify one; maxConcurrency caps it to avoid
+// overwhelming the source or the local disk.
+const (
+	defaultConcurrency = 8
+	maxConcurrency     = 32
+)
+
 // retryable reports whether an error is worth retrying. HTTP 5xx/429 and network
 // or streaming errors are transient; 4xx (and anything explicitly non-retryable)
 // is permanent.
@@ -61,6 +70,7 @@ type Job struct {
 	Status     string   `json:"status"` // "running", "completed", "failed", "cancelled"
 	Total      int      `json:"total"`
 	Copied     int      `json:"copied"`
+	Skipped    int      `json:"skipped"` // already present at destination (resumed migration)
 	Failed     int      `json:"failed"`
 	Policies   int      `json:"policies"` // bucket policies carried over from the source
 	Error      string   `json:"error,omitempty"`
@@ -95,6 +105,9 @@ type StartConfig struct {
 	SecretKey string
 	Region    string
 	Buckets   []string // empty = all source buckets
+	// Concurrency is how many objects to copy in parallel per bucket. 0 uses
+	// defaultConcurrency; values above maxConcurrency are clamped.
+	Concurrency int
 }
 
 // TestConnection validates credentials by listing the source buckets.
@@ -141,7 +154,15 @@ func (m *Manager) Start(cfg StartConfig) (string, error) {
 	m.cancels[id] = cancel
 	m.mu.Unlock()
 
-	go m.run(ctx, src, job)
+	concurrency := cfg.Concurrency
+	if concurrency <= 0 {
+		concurrency = defaultConcurrency
+	}
+	if concurrency > maxConcurrency {
+		concurrency = maxConcurrency
+	}
+
+	go m.run(ctx, src, job, concurrency)
 	return id, nil
 }
 
@@ -178,7 +199,7 @@ func (m *Manager) Cancel(id string) bool {
 	return true
 }
 
-func (m *Manager) run(ctx context.Context, src *Source, job *Job) {
+func (m *Manager) run(ctx context.Context, src *Source, job *Job, concurrency int) {
 	defer func() {
 		m.mu.Lock()
 		delete(m.cancels, job.ID)
@@ -217,18 +238,42 @@ func (m *Manager) run(ctx context.Context, src *Source, job *Job) {
 			}
 			m.bump(job, func(j *Job) { j.Total += len(objs) })
 
+			// Copy the page's objects with a bounded worker pool so a large
+			// bucket migrates in parallel instead of one object at a time.
+			sem := make(chan struct{}, concurrency)
+			var wg sync.WaitGroup
 			for _, o := range objs {
-				o := o
 				if ctx.Err() != nil {
-					m.markCancelled(job)
-					return
+					break
 				}
-				if err := withRetry("copy "+bucket+"/"+o.Key, func() error { return m.copyOne(src, bucket, o) }); err != nil {
-					slog.Warn("migrate: copy failed after retries", "bucket", bucket, "key", o.Key, "error", err)
-					m.bump(job, func(j *Job) { j.Failed++ })
-					continue
-				}
-				m.bump(job, func(j *Job) { j.Copied++ })
+				o := o
+				sem <- struct{}{}
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					defer func() { <-sem }()
+					if ctx.Err() != nil {
+						return
+					}
+					// Resume: skip an object already at the destination (a prior
+					// run copied it), so a restarted/crashed migration continues
+					// instead of re-transferring the whole bucket.
+					if m.alreadyMigrated(bucket, o) {
+						m.bump(job, func(j *Job) { j.Skipped++ })
+						return
+					}
+					if err := withRetry("copy "+bucket+"/"+o.Key, func() error { return m.copyOne(src, bucket, o) }); err != nil {
+						slog.Warn("migrate: copy failed after retries", "bucket", bucket, "key", o.Key, "error", err)
+						m.bump(job, func(j *Job) { j.Failed++ })
+						return
+					}
+					m.bump(job, func(j *Job) { j.Copied++ })
+				}()
+			}
+			wg.Wait()
+			if ctx.Err() != nil {
+				m.markCancelled(job)
+				return
 			}
 			if next == "" {
 				break
@@ -242,7 +287,24 @@ func (m *Manager) run(ctx context.Context, src *Source, job *Job) {
 		}
 		j.FinishedAt = time.Now().Unix()
 	})
-	slog.Info("migrate: completed", "id", job.ID, "copied", job.Copied, "failed", job.Failed)
+	slog.Info("migrate: completed", "id", job.ID, "copied", job.Copied, "skipped", job.Skipped, "failed", job.Failed)
+}
+
+// alreadyMigrated reports whether the object is already present at the
+// destination with the same size, i.e. a previous run copied it. This makes a
+// migration resumable: after a restart or crash it skips what it already
+// transferred instead of re-copying the whole bucket. GetObjectMeta only
+// succeeds once both the object data and its metadata are committed, so an
+// object left half-written by a crash is not mistaken for a completed copy and
+// gets re-copied. Size (not ETag) is the match key on purpose: ETag schemes
+// differ across S3 implementations and storage modes (multipart, encryption,
+// packing), so comparing ETags would force needless re-copies.
+func (m *Manager) alreadyMigrated(bucket string, o ObjectInfo) bool {
+	meta, err := m.store.GetObjectMeta(bucket, o.Key)
+	if err != nil {
+		return false
+	}
+	return meta.Size == o.Size
 }
 
 // migrateBucketMeta copies the source bucket's policy and tags to the local

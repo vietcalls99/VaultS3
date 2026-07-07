@@ -576,3 +576,169 @@ func TestMigrateCopiesBucketPolicyAndTags(t *testing.T) {
 		t.Fatalf("bucket tags not migrated, got %v", tags)
 	}
 }
+
+// TestMigrateResumeSkipsExisting verifies issue #24: a migration re-run (after a
+// restart or crash) skips objects already present at the destination instead of
+// re-copying the whole bucket.
+func TestMigrateResumeSkipsExisting(t *testing.T) {
+	objects := map[string][]byte{
+		"docs/a.txt": []byte("alpha"),
+		"docs/b.txt": []byte("bravo"),
+		"docs/c.txt": []byte("charlie"),
+	}
+	endpoint := stubS3(t, objects)
+	store, eng := newLocal(t)
+	m := NewManager(store, eng)
+
+	// First run copies everything.
+	id, err := m.Start(StartConfig{Endpoint: endpoint, AccessKey: "k", SecretKey: "s"})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	j1 := waitDone(t, m, id)
+	if j1.Status != "completed" || j1.Copied != 3 || j1.Skipped != 0 {
+		t.Fatalf("first run: status=%s copied=%d skipped=%d", j1.Status, j1.Copied, j1.Skipped)
+	}
+
+	// Second run (a restart) must skip all three and copy nothing.
+	id2, err := m.Start(StartConfig{Endpoint: endpoint, AccessKey: "k", SecretKey: "s"})
+	if err != nil {
+		t.Fatalf("Start 2: %v", err)
+	}
+	j2 := waitDone(t, m, id2)
+	if j2.Status != "completed" {
+		t.Fatalf("second run status=%s err=%s", j2.Status, j2.Error)
+	}
+	if j2.Copied != 0 || j2.Skipped != 3 || j2.Failed != 0 {
+		t.Fatalf("resume: copied=%d skipped=%d failed=%d, want 0/3/0", j2.Copied, j2.Skipped, j2.Failed)
+	}
+
+	// Data is still intact after the resumed (no-op) run.
+	rc, _, err := eng.GetObject("docs", "a.txt")
+	if err != nil {
+		t.Fatalf("GetObject: %v", err)
+	}
+	got, _ := io.ReadAll(rc)
+	rc.Close()
+	if string(got) != "alpha" {
+		t.Fatalf("object changed on resume: %q", got)
+	}
+}
+
+// TestMigrateCopiesConcurrently verifies the copy loop runs objects in parallel
+// (issue #24, kesavkolla's comment) and respects the concurrency bound.
+func TestMigrateCopiesConcurrently(t *testing.T) {
+	const n = 12
+	keys := make([]string, n)
+	for i := range keys {
+		keys[i] = fmt.Sprintf("k%02d.txt", i)
+	}
+
+	var mu sync.Mutex
+	inFlight, maxInFlight := 0, 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/xml")
+		switch {
+		case r.URL.Path == "/":
+			io.WriteString(w, `<ListAllMyBucketsResult><Buckets><Bucket><Name>b</Name></Bucket></Buckets></ListAllMyBucketsResult>`)
+		case r.URL.Query().Get("list-type") == "2":
+			// Return all keys in a single page so the worker pool has real work.
+			var b strings.Builder
+			b.WriteString(`<ListBucketResult>`)
+			for _, k := range keys {
+				fmt.Fprintf(&b, `<Contents><Key>%s</Key><Size>3</Size><ETag>"x"</ETag></Contents>`, k)
+			}
+			b.WriteString(`<IsTruncated>false</IsTruncated></ListBucketResult>`)
+			io.WriteString(w, b.String())
+		default: // GetObject — measure how many run at once.
+			mu.Lock()
+			inFlight++
+			if inFlight > maxInFlight {
+				maxInFlight = inFlight
+			}
+			mu.Unlock()
+			time.Sleep(40 * time.Millisecond)
+			mu.Lock()
+			inFlight--
+			mu.Unlock()
+			w.Header().Set("Content-Type", "text/plain")
+			w.Write([]byte("abc"))
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	store, eng := newLocal(t)
+	m := NewManager(store, eng)
+	id, err := m.Start(StartConfig{Endpoint: srv.URL, AccessKey: "k", SecretKey: "s", Concurrency: 4})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	j := waitDone(t, m, id)
+	if j.Status != "completed" || j.Copied != n {
+		t.Fatalf("status=%s copied=%d, want completed/%d", j.Status, j.Copied, n)
+	}
+
+	mu.Lock()
+	mx := maxInFlight
+	mu.Unlock()
+	if mx < 2 {
+		t.Fatalf("expected concurrent copies (>1), max in-flight was %d", mx)
+	}
+	if mx > 4 {
+		t.Fatalf("concurrency exceeded the configured limit of 4: max in-flight %d", mx)
+	}
+}
+
+// TestMigrateResumePartial mirrors the reporter's exact case in issue #24: a
+// prior migration copied some objects before it stopped; the re-run copies only
+// the missing ones and skips what is already there.
+func TestMigrateResumePartial(t *testing.T) {
+	objects := map[string][]byte{
+		"docs/a.txt": []byte("alpha"),
+		"docs/b.txt": []byte("bravo"),
+		"docs/c.txt": []byte("charlie"),
+	}
+	endpoint := stubS3(t, objects)
+	store, eng := newLocal(t)
+	m := NewManager(store, eng)
+
+	// Simulate a prior run that copied only docs/a.txt before it died.
+	if err := store.CreateBucket("docs"); err != nil {
+		t.Fatalf("CreateBucket: %v", err)
+	}
+	eng.CreateBucketDir("docs")
+	w, etag, err := eng.PutObject("docs", "a.txt", strings.NewReader("alpha"), 5)
+	if err != nil {
+		t.Fatalf("seed PutObject: %v", err)
+	}
+	if err := store.PutObjectMeta(metadata.ObjectMeta{
+		Bucket: "docs", Key: "a.txt", Size: w, ETag: etag, LastModified: time.Now().Unix(),
+	}); err != nil {
+		t.Fatalf("seed PutObjectMeta: %v", err)
+	}
+
+	id, err := m.Start(StartConfig{Endpoint: endpoint, AccessKey: "k", SecretKey: "s"})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	j := waitDone(t, m, id)
+	if j.Status != "completed" {
+		t.Fatalf("status=%s err=%s", j.Status, j.Error)
+	}
+	if j.Copied != 2 || j.Skipped != 1 || j.Failed != 0 {
+		t.Fatalf("partial resume: copied=%d skipped=%d failed=%d, want 2/1/0", j.Copied, j.Skipped, j.Failed)
+	}
+
+	// The two missing objects are now present with correct content.
+	for _, tc := range []struct{ key, want string }{{"b.txt", "bravo"}, {"c.txt", "charlie"}} {
+		rc, _, err := eng.GetObject("docs", tc.key)
+		if err != nil {
+			t.Fatalf("GetObject %s: %v", tc.key, err)
+		}
+		got, _ := io.ReadAll(rc)
+		rc.Close()
+		if string(got) != tc.want {
+			t.Fatalf("%s = %q, want %q", tc.key, got, tc.want)
+		}
+	}
+}
