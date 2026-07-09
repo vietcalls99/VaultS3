@@ -73,6 +73,7 @@ export function bucketEncryptionAction(name: string, action: 'enable' | 'rotate'
 // Lifecycle
 export interface LifecycleRule {
   expirationDays: number
+  abortIncompleteMultipartDays?: number
   prefix: string
   status: string
 }

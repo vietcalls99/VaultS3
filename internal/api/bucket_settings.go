@@ -50,34 +50,39 @@ func (h *APIHandler) handleGetLifecycleRule(w http.ResponseWriter, _ *http.Reque
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"rule": map[string]interface{}{
-			"expirationDays": rule.ExpirationDays,
-			"prefix":         rule.Prefix,
-			"status":         rule.Status,
+			"expirationDays":               rule.ExpirationDays,
+			"abortIncompleteMultipartDays": rule.AbortIncompleteMultipartDays,
+			"prefix":                       rule.Prefix,
+			"status":                       rule.Status,
 		},
 	})
 }
 
 func (h *APIHandler) handlePutLifecycleRule(w http.ResponseWriter, r *http.Request, bucket string) {
 	var req struct {
-		ExpirationDays int    `json:"expirationDays"`
-		Prefix         string `json:"prefix"`
-		Status         string `json:"status"`
+		ExpirationDays               int    `json:"expirationDays"`
+		AbortIncompleteMultipartDays int    `json:"abortIncompleteMultipartDays"`
+		Prefix                       string `json:"prefix"`
+		Status                       string `json:"status"`
 	}
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
-	if req.ExpirationDays < 1 {
-		writeError(w, http.StatusBadRequest, "expirationDays must be >= 1")
+	// A rule must specify at least one action: object expiration or aborting
+	// incomplete multipart uploads.
+	if req.ExpirationDays < 1 && req.AbortIncompleteMultipartDays < 1 {
+		writeError(w, http.StatusBadRequest, "set expirationDays or abortIncompleteMultipartDays (>= 1)")
 		return
 	}
 	if req.Status == "" {
 		req.Status = "Enabled"
 	}
 	rule := metadata.LifecycleRule{
-		ExpirationDays: req.ExpirationDays,
-		Prefix:         req.Prefix,
-		Status:         req.Status,
+		ExpirationDays:               req.ExpirationDays,
+		AbortIncompleteMultipartDays: req.AbortIncompleteMultipartDays,
+		Prefix:                       req.Prefix,
+		Status:                       req.Status,
 	}
 	if err := h.store.PutLifecycleRule(bucket, rule); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())

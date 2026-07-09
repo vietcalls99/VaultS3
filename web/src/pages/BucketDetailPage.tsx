@@ -34,6 +34,7 @@ export default function BucketDetailPage() {
   // Lifecycle state
   const [lifecycleRule, setLifecycleRuleState] = useState<LifecycleRule | null>(null)
   const [lcExpDays, setLcExpDays] = useState('')
+  const [lcAbortDays, setLcAbortDays] = useState('')
   const [lcPrefix, setLcPrefix] = useState('')
   const [lcStatus, setLcStatus] = useState('Enabled')
   const [savingLifecycle, setSavingLifecycle] = useState(false)
@@ -64,7 +65,8 @@ export default function BucketDetailPage() {
           .then((lc) => {
             if (lc.rule) {
               setLifecycleRuleState(lc.rule)
-              setLcExpDays(String(lc.rule.expirationDays))
+              setLcExpDays(lc.rule.expirationDays ? String(lc.rule.expirationDays) : '')
+              setLcAbortDays(lc.rule.abortIncompleteMultipartDays ? String(lc.rule.abortIncompleteMultipartDays) : '')
               setLcPrefix(lc.rule.prefix || '')
               setLcStatus(lc.rule.status || 'Enabled')
             }
@@ -128,7 +130,8 @@ export default function BucketDetailPage() {
     setSavingLifecycle(true); setError('')
     try {
       const rule: LifecycleRule = {
-        expirationDays: Number(lcExpDays) || 30,
+        expirationDays: Number(lcExpDays) || 0,
+        abortIncompleteMultipartDays: Number(lcAbortDays) || 0,
         prefix: lcPrefix,
         status: lcStatus,
       }
@@ -271,7 +274,7 @@ export default function BucketDetailPage() {
 
       {/* Lifecycle rule editor */}
       <Section title="Lifecycle Rule">
-        <div className="grid grid-cols-3 gap-4 mb-3">
+        <div className="grid grid-cols-4 gap-4 mb-3">
           <div>
             <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Expiration (days)</label>
             <input
@@ -280,6 +283,16 @@ export default function BucketDetailPage() {
               onChange={e => setLcExpDays(e.target.value)}
               className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
               placeholder="30"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1" title="Abort incomplete multipart uploads older than this many days">Abort uploads (days)</label>
+            <input
+              type="number"
+              value={lcAbortDays}
+              onChange={e => setLcAbortDays(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+              placeholder="7"
             />
           </div>
           <div>
@@ -307,7 +320,7 @@ export default function BucketDetailPage() {
         <div className="flex gap-2">
           <button
             onClick={handleSaveLifecycle}
-            disabled={savingLifecycle || !lcExpDays}
+            disabled={savingLifecycle || (!lcExpDays && !lcAbortDays)}
             className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white text-sm font-medium transition-colors"
           >
             {savingLifecycle ? 'Saving...' : 'Save Rule'}

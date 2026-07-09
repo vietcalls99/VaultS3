@@ -6,6 +6,17 @@ semantic-ish versioning via git tags (`vMAJOR.MINOR.PATCH`).
 
 ## [Unreleased]
 
+## [4.4.8] - 2026-07-09
+### Added
+- **Lifecycle rule to abort incomplete multipart uploads** (issue #28). A bucket
+  lifecycle rule can now expire abandoned multipart uploads (from killed or failed
+  clients) after a number of days, via the standard S3
+  `AbortIncompleteMultipartUpload` / `DaysAfterInitiation` element (works with
+  `aws s3api`, `mc`, and boto3) and via a field in the dashboard lifecycle editor.
+  A rule may now specify only this action, with no object expiration. The lifecycle
+  worker that enforces it now also deletes the uploaded part files from disk, not
+  just the upload metadata, so the space is actually reclaimed.
+
 ## [4.4.7] - 2026-07-09
 ### Fixed
 - **Large-file migration no longer times out** (issue #26). The migration source
@@ -612,7 +623,8 @@ engines) plus an audit of the high-risk packages. Every fix has a regression tes
   dashboard, CLI, versioning, WORM, notifications, full-text search, FUSE mount,
   and multi-platform release binaries + Docker images.
 
-[Unreleased]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.7...HEAD
+[Unreleased]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.8...HEAD
+[4.4.8]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.7...v4.4.8
 [4.4.7]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.6...v4.4.7
 [4.4.6]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.5...v4.4.6
 [4.4.5]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.4...v4.4.5

@@ -298,6 +298,9 @@ func (h *BucketHandler) PutBucketLifecycle(w http.ResponseWriter, r *http.Reques
 			Expiration struct {
 				Days int `xml:"Days"`
 			} `xml:"Expiration"`
+			AbortIncompleteMultipartUpload struct {
+				DaysAfterInitiation int `xml:"DaysAfterInitiation"`
+			} `xml:"AbortIncompleteMultipartUpload"`
 			Filter struct {
 				Prefix string `xml:"Prefix"`
 			} `xml:"Filter"`
@@ -314,17 +317,20 @@ func (h *BucketHandler) PutBucketLifecycle(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Store the first rule (simplified — one rule per bucket)
+	// Store the first rule (simplified — one rule per bucket). A rule is valid if
+	// it specifies at least one action: object expiration or aborting incomplete
+	// multipart uploads (AWS allows a rule with only AbortIncompleteMultipartUpload).
 	rule := req.Rules[0]
-	if rule.Expiration.Days <= 0 {
-		writeS3Error(w, "InvalidArgument", "Expiration days must be positive", http.StatusBadRequest)
+	if rule.Expiration.Days <= 0 && rule.AbortIncompleteMultipartUpload.DaysAfterInitiation <= 0 {
+		writeS3Error(w, "InvalidArgument", "A rule must specify Expiration or AbortIncompleteMultipartUpload", http.StatusBadRequest)
 		return
 	}
 
 	if err := h.store.PutLifecycleRule(bucket, metadata.LifecycleRule{
-		ExpirationDays: rule.Expiration.Days,
-		Prefix:         rule.Filter.Prefix,
-		Status:         rule.Status,
+		ExpirationDays:               rule.Expiration.Days,
+		AbortIncompleteMultipartDays: rule.AbortIncompleteMultipartUpload.DaysAfterInitiation,
+		Prefix:                       rule.Filter.Prefix,
+		Status:                       rule.Status,
 	}); err != nil {
 		slog.Error("internal error", "error", err)
 		writeS3Error(w, "InternalError", "An internal error occurred", http.StatusInternalServerError)
@@ -350,13 +356,17 @@ func (h *BucketHandler) GetBucketLifecycle(w http.ResponseWriter, r *http.Reques
 	type xmlExpiration struct {
 		Days int `xml:"Days"`
 	}
+	type xmlAbort struct {
+		DaysAfterInitiation int `xml:"DaysAfterInitiation"`
+	}
 	type xmlFilter struct {
 		Prefix string `xml:"Prefix,omitempty"`
 	}
 	type xmlRule struct {
-		Expiration xmlExpiration `xml:"Expiration"`
-		Filter     xmlFilter     `xml:"Filter"`
-		Status     string        `xml:"Status"`
+		Expiration                     *xmlExpiration `xml:"Expiration,omitempty"`
+		AbortIncompleteMultipartUpload *xmlAbort      `xml:"AbortIncompleteMultipartUpload,omitempty"`
+		Filter                         xmlFilter      `xml:"Filter"`
+		Status                         string         `xml:"Status"`
 	}
 	type xmlLifecycleConfig struct {
 		XMLName xml.Name  `xml:"LifecycleConfiguration"`
@@ -364,13 +374,20 @@ func (h *BucketHandler) GetBucketLifecycle(w http.ResponseWriter, r *http.Reques
 		Rules   []xmlRule `xml:"Rule"`
 	}
 
+	xr := xmlRule{
+		Filter: xmlFilter{Prefix: rule.Prefix},
+		Status: rule.Status,
+	}
+	if rule.ExpirationDays > 0 {
+		xr.Expiration = &xmlExpiration{Days: rule.ExpirationDays}
+	}
+	if rule.AbortIncompleteMultipartDays > 0 {
+		xr.AbortIncompleteMultipartUpload = &xmlAbort{DaysAfterInitiation: rule.AbortIncompleteMultipartDays}
+	}
+
 	writeXML(w, http.StatusOK, xmlLifecycleConfig{
 		Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/",
-		Rules: []xmlRule{{
-			Expiration: xmlExpiration{Days: rule.ExpirationDays},
-			Filter:     xmlFilter{Prefix: rule.Prefix},
-			Status:     rule.Status,
-		}},
+		Rules: []xmlRule{xr},
 	})
 }
 

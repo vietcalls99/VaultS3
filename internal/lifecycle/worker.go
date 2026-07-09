@@ -3,6 +3,8 @@ package lifecycle
 import (
 	"context"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -225,6 +227,13 @@ func (w *Worker) scan() {
 						continue
 					}
 					w.store.DeleteMultipartUpload(upload.UploadID)
+					// Also remove the uploaded parts from disk, otherwise the
+					// space they occupy is never reclaimed (deleting the metadata
+					// alone leaves the part files behind). Mirrors the layout the
+					// S3 AbortMultipartUpload handler uses.
+					if safeUploadID(upload.UploadID) {
+						os.RemoveAll(filepath.Join(w.engine.DataDir(), ".multipart", upload.UploadID))
+					}
 					multipartAborted++
 				}
 			}
@@ -266,4 +275,10 @@ func (w *Worker) pruneAndClean() {
 	} else if deleted > 0 {
 		slog.Info("lifecycle removed expired STS keys", "count", deleted)
 	}
+}
+
+// safeUploadID guards the parts-directory removal against path traversal. Upload
+// IDs are server-generated, but this is defense in depth before an os.RemoveAll.
+func safeUploadID(id string) bool {
+	return id != "" && id != "." && id != ".." && !strings.ContainsAny(id, `/\`)
 }

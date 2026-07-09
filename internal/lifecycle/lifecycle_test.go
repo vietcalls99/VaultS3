@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"io"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -293,5 +294,56 @@ func TestScan_PrunesAuditEntries(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Errorf("expected 0 entries after pruning, got %d", len(entries))
+	}
+}
+
+// TestScan_AbortsStaleMultipartUploads covers issue #28 end to end: the lifecycle
+// worker deletes incomplete multipart uploads older than
+// AbortIncompleteMultipartDays, removing both the metadata and the part files on
+// disk (so the space is actually reclaimed), while keeping fresh uploads.
+func TestScan_AbortsStaleMultipartUploads(t *testing.T) {
+	store := newTestStore(t)
+	dir := t.TempDir()
+	engine, err := storage.NewFileSystem(dir)
+	if err != nil {
+		t.Fatalf("NewFileSystem: %v", err)
+	}
+
+	store.CreateBucket("mybucket")
+	store.PutLifecycleRule("mybucket", metadata.LifecycleRule{
+		Status:                       "Enabled",
+		AbortIncompleteMultipartDays: 1,
+	})
+
+	now := time.Now().Unix()
+	seed := func(id string, ageDays int64) {
+		if err := store.CreateMultipartUpload(metadata.MultipartUpload{
+			UploadID: id, Bucket: "mybucket", Key: id + ".bin", CreatedAt: now - ageDays*86400,
+		}); err != nil {
+			t.Fatalf("CreateMultipartUpload: %v", err)
+		}
+		partsDir := filepath.Join(dir, ".multipart", id)
+		os.MkdirAll(partsDir, 0755)
+		os.WriteFile(filepath.Join(partsDir, "1"), []byte("partdata"), 0644)
+	}
+	seed("old", 3)   // 3 days old -> aborted
+	seed("fresh", 0) // just started -> kept
+
+	NewWorker(store, engine, 3600, 0).scan()
+
+	// Stale upload: metadata gone AND part files removed from disk.
+	if _, err := store.GetMultipartUpload("old"); err == nil {
+		t.Fatal("stale multipart upload metadata should have been removed")
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".multipart", "old")); !os.IsNotExist(err) {
+		t.Fatalf("stale multipart parts should have been removed from disk (err=%v)", err)
+	}
+
+	// Fresh upload: kept, parts intact.
+	if _, err := store.GetMultipartUpload("fresh"); err != nil {
+		t.Fatalf("fresh multipart upload should be kept: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".multipart", "fresh")); err != nil {
+		t.Fatalf("fresh multipart parts should remain: %v", err)
 	}
 }

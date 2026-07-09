@@ -113,7 +113,7 @@ VaultS3 is honest about what's battle-tested versus still maturing. Pick the lan
 - **Separate dashboard port**: Optionally serve the Web UI + its API on a dedicated port (`server.console_port`, e.g. 9001) apart from the S3 API, so each can have its own firewall rules / TLS / reverse proxy (MinIO-style)
 - **Object versioning**: Per-bucket versioning with version IDs, delete markers, version-specific GET/DELETE/HEAD
 - **Object locking (WORM)**: Legal hold and retention (GOVERNANCE/COMPLIANCE) to prevent deletion
-- **Lifecycle rules**: Per-bucket object expiration (auto-delete after N days) with background worker
+- **Lifecycle rules**: Per-bucket object expiration (auto-delete after N days) and aborting incomplete multipart uploads after N days (S3 `AbortIncompleteMultipartUpload`, reclaims the parts left by killed/failed clients), run by a background worker
 - **Zstandard compression**: Transparent compress-on-write, decompress-on-read with zstd (better ratio and speed than gzip). Objects written by older gzip builds are still read transparently (codec auto-detected by magic number)
 - **Small-file packing (experimental)**: Optionally pack objects up to a size threshold into large append-only **volume** files (each as an independent zstd frame) with byte-offset locations in BoltDB, plus background dead-space **compaction** (`POST /api/v1/compact`), avoids the per-file overhead (inodes, syscalls, disk blocks) of millions of tiny objects. Larger objects fall through to individual files. Not yet composable with encryption or erasure coding (skipped if either is enabled)
 - **Scales to millions of objects**: Listing and storage stats are served from a sorted BoltDB metadata index with maintained per-bucket counters (size/count updated incrementally on every write), never a filesystem walk. So dashboard stats are O(1) and the object browser pages in milliseconds regardless of bucket size, verified at 1M+ objects (stats `13s → 0.4ms`)
@@ -685,7 +685,21 @@ s3.put_bucket_lifecycle_configuration(Bucket='my-bucket',
     })
 ```
 
-The background worker scans objects periodically (configurable interval, default 1 hour) and deletes expired objects. Locked objects (legal hold or retention) are skipped.
+Abort incomplete multipart uploads (from killed or failed clients) after a number of days, reclaiming the uploaded parts. A rule may specify only this action, with no object expiration:
+
+```python
+s3.put_bucket_lifecycle_configuration(Bucket='my-bucket',
+    LifecycleConfiguration={
+        'Rules': [{
+            'ID': 'abort-stale-uploads',
+            'AbortIncompleteMultipartUpload': {'DaysAfterInitiation': 7},
+            'Filter': {'Prefix': ''},
+            'Status': 'Enabled',
+        }]
+    })
+```
+
+The background worker scans periodically (configurable interval, default 1 hour) and deletes expired objects and aborts stale multipart uploads (removing both their metadata and their part files on disk). Locked objects (legal hold or retention) are skipped.
 
 ### Compression
 
