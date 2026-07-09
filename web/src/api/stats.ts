@@ -46,3 +46,25 @@ export interface SystemInfo {
 export function getSystemInfo(): Promise<SystemInfo> {
   return apiFetch<SystemInfo>('/system')
 }
+
+export interface NodeSystemInfo extends SystemInfo {
+  nodeId?: string
+  address?: string
+  reachable?: boolean
+}
+
+export interface ClusterInfo {
+  clustered: boolean
+  nodeCount: number
+  reachableNodes: number
+  nodes: NodeSystemInfo[]
+  totals: {
+    disk: { totalBytes: number; usedBytes: number; freeBytes: number }
+    objectBytes: number
+    objectCount: number
+  }
+}
+
+export function getClusterInfo(): Promise<ClusterInfo> {
+  return apiFetch<ClusterInfo>('/cluster/info')
+}

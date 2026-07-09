@@ -54,6 +54,8 @@ type APIHandler struct {
 	onReplication    ReplicationFunc
 	clusterProxy     ClusterProxyFunc                        // proxy a single-object request to its owner (download/delete)
 	clusterOwner     func(bucket, key string) (string, bool) // owner API addr for placement (upload); ("",false) if local
+	clusterSelfID    string                                  // this node's cluster ID ("" if single-node)
+	clusterNodeAddrs func() map[string]string                // nodeID -> API addr for all cluster nodes (nil if single-node)
 }
 
 // ReplicationFunc is called after a dashboard-initiated object mutation so the
@@ -69,6 +71,13 @@ type ClusterProxyFunc func(w http.ResponseWriter, r *http.Request, bucket, key s
 func (h *APIHandler) SetClusterRouting(proxy ClusterProxyFunc, owner func(bucket, key string) (string, bool)) {
 	h.clusterProxy = proxy
 	h.clusterOwner = owner
+}
+
+// SetClusterInfo wires the cluster-wide capacity rollup (no-op single-node).
+// nodeAddrs returns the current nodeID -> API-address map.
+func (h *APIHandler) SetClusterInfo(selfID string, nodeAddrs func() map[string]string) {
+	h.clusterSelfID = selfID
+	h.clusterNodeAddrs = nodeAddrs
 }
 
 func NewAPIHandler(store metadata.StoreAPI, engine storage.Engine, mc *metrics.Collector, cfg *config.Config, activity *ActivityLog) *APIHandler {
@@ -370,6 +379,10 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// System / capacity overview (version, disk total/used/free, object usage)
 	case path == "/system" && r.Method == http.MethodGet:
 		h.handleSystemInfo(w, r)
+
+	// Cluster-wide capacity rollup across all nodes (mc-admin-info style)
+	case path == "/cluster/info" && r.Method == http.MethodGet:
+		h.handleClusterInfo(w, r)
 
 	// Cost estimator (TCO vs managed clouds)
 	case path == "/tco" && r.Method == http.MethodGet:

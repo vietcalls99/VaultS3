@@ -134,7 +134,7 @@ VaultS3 is honest about what's battle-tested versus still maturing. Pick the lan
 - **Active-active replication**: Bidirectional site-to-site sync with vector clocks for causal ordering, pluggable conflict resolution (last-writer-wins, largest-object, site-preference), and change log for efficient delta sync
 - **Async replication**: One-way async replication to peer VaultS3 instances with BoltDB-backed queue, retry with exponential backoff, and loop prevention
 - **CLI tool**: Standalone `vaults3-cli` binary for bucket, object, user, and replication management without AWS CLI, plus `vaults3-cli info` for server version and storage capacity (used / free / total)
-- **Capacity overview**: `GET /api/v1/system` and the dashboard Stats page report the version and on-disk capacity (total / used / free, aggregated across the data, cold-tier, and erasure directories) alongside logical object usage, so you can see how full the storage is at a glance
+- **Capacity overview**: `GET /api/v1/system` and the dashboard Stats page report the version and on-disk capacity (total / used / free, aggregated across the data, cold-tier, and erasure directories) alongside logical object usage, so you can see how full the storage is at a glance. In a cluster, `GET /api/v1/cluster/info` (and the same dashboard panel / `vaults3-cli info`) aggregate capacity across all nodes with a per-node breakdown, an `mc admin info`-style view
 - **Presigned upload restrictions**: Enforce max file size, content type whitelist, and key prefix on presigned PUT URLs
 - **Full-text search**: In-memory search index over object metadata, tags, content type, and key patterns with incremental updates
 - **Semantic / vector search (optional)**: Embeds object text via any OpenAI-compatible endpoint (Ollama, llama.cpp, OpenAI…) and serves similarity search + RAG retrieval from `POST /api/v1/vectors/query`, all in the single binary, no external vector database. Searchable from the dashboard (Keyword / Semantic toggle)
@@ -303,6 +303,7 @@ VaultS3 is honest about what's battle-tested versus still maturing. Pick the lan
 | Version List (Dashboard) | `GET /api/v1/versions?bucket=X&key=Y` | Done |
 | Settings | `GET /api/v1/settings` | Done |
 | System / Capacity | `GET /api/v1/system` | Done |
+| Cluster Capacity | `GET /api/v1/cluster/info` | Done |
 | Cluster Status | `GET /cluster/status` | Done |
 | Cluster Join | `POST /cluster/join` | Done |
 | Cluster Leave | `POST /cluster/leave` | Done |

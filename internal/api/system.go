@@ -1,18 +1,44 @@
 package api
 
 import (
+	"bytes"
+	"crypto/tls"
+	"encoding/json"
 	"net/http"
 	"runtime"
+	"time"
 
 	"github.com/Kodiqa-Solutions/VaultS3/internal/sysinfo"
 )
 
-// handleSystemInfo handles GET /api/v1/system: version, data directories, on-disk
-// capacity (total/used/free) and logical object usage. This is the single-node
-// "how much capacity and how much is occupied" overview.
-func (h *APIHandler) handleSystemInfo(w http.ResponseWriter, _ *http.Request) {
-	// Every configured data directory contributes to on-disk capacity; DiskUsage
-	// deduplicates directories that share a filesystem.
+// NodeSystemInfo is one node's version, capacity, and object usage. The cluster
+// fields (NodeID/Address/Reachable) are omitted from the single-node
+// /api/v1/system response and populated only in the cluster rollup.
+type NodeSystemInfo struct {
+	NodeID      string       `json:"nodeId,omitempty"`
+	Address     string       `json:"address,omitempty"`
+	Reachable   bool         `json:"reachable,omitempty"`
+	Version     string       `json:"version"`
+	OS          string       `json:"os"`
+	Arch        string       `json:"arch"`
+	DataDirs    []string     `json:"dataDirs"`
+	Disk        sysinfo.Disk `json:"disk"`
+	ObjectBytes int64        `json:"objectBytes"`
+	ObjectCount int64        `json:"objectCount"`
+	BucketCount int          `json:"bucketCount"`
+}
+
+// clusterInfoClient fetches peers' /api/v1/system for the cluster rollup. Inter
+// -node TLS is commonly self-signed, so certificate verification is skipped for
+// these internal, admin-authenticated calls.
+var clusterInfoClient = &http.Client{
+	Timeout:   5 * time.Second,
+	Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}},
+}
+
+// localSystemInfo gathers this node's version, on-disk capacity, and logical
+// object usage.
+func (h *APIHandler) localSystemInfo() NodeSystemInfo {
 	var dirs []string
 	if h.cfg != nil {
 		dirs = append(dirs, h.cfg.Storage.DataDir, h.cfg.Storage.MetadataDir)
@@ -24,8 +50,6 @@ func (h *APIHandler) handleSystemInfo(w http.ResponseWriter, _ *http.Request) {
 		}
 	}
 
-	// Logical object usage (sum of object bytes, which differs from on-disk bytes
-	// when compression or encryption is enabled).
 	var objectBytes, objectCount int64
 	var bucketCount int
 	if buckets, err := h.store.ListBuckets(); err == nil {
@@ -44,16 +68,124 @@ func (h *APIHandler) handleSystemInfo(w http.ResponseWriter, _ *http.Request) {
 		}
 	}
 
+	return NodeSystemInfo{
+		Version:     version,
+		OS:          runtime.GOOS,
+		Arch:        runtime.GOARCH,
+		DataDirs:    uniqueNonEmpty(dirs),
+		Disk:        sysinfo.DiskUsage(dirs),
+		ObjectBytes: objectBytes,
+		ObjectCount: objectCount,
+		BucketCount: bucketCount,
+	}
+}
+
+// handleSystemInfo handles GET /api/v1/system: this node's version, data
+// directories, on-disk capacity (total/used/free), and logical object usage.
+func (h *APIHandler) handleSystemInfo(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, h.localSystemInfo())
+}
+
+// handleClusterInfo handles GET /api/v1/cluster/info: the version and capacity of
+// every node in the cluster, plus aggregate totals — a cluster-wide equivalent of
+// `mc admin info`. On a single node it returns just this node.
+func (h *APIHandler) handleClusterInfo(w http.ResponseWriter, _ *http.Request) {
+	self := h.localSystemInfo()
+	self.NodeID = h.clusterSelfID
+	self.Reachable = true
+	nodes := []NodeSystemInfo{self}
+
+	if h.clusterNodeAddrs != nil {
+		for id, addr := range h.clusterNodeAddrs() {
+			if id == h.clusterSelfID || addr == "" {
+				continue
+			}
+			nodes = append(nodes, h.fetchPeerSystemInfo(id, addr))
+		}
+	}
+
+	// Aggregate physical disk across reachable nodes (replicas legitimately use
+	// disk on multiple nodes, so this is the true "how full is the cluster").
+	var totalDisk sysinfo.Disk
+	var objectBytes, objectCount int64
+	reachable := 0
+	for _, n := range nodes {
+		if !n.Reachable {
+			continue
+		}
+		reachable++
+		totalDisk.TotalBytes += n.Disk.TotalBytes
+		totalDisk.UsedBytes += n.Disk.UsedBytes
+		totalDisk.FreeBytes += n.Disk.FreeBytes
+		objectBytes += n.ObjectBytes
+		objectCount += n.ObjectCount
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
-		"version":     version,
-		"os":          runtime.GOOS,
-		"arch":        runtime.GOARCH,
-		"dataDirs":    uniqueNonEmpty(dirs),
-		"disk":        sysinfo.DiskUsage(dirs),
-		"objectBytes": objectBytes,
-		"objectCount": objectCount,
-		"bucketCount": bucketCount,
+		"clustered":      h.clusterSelfID != "",
+		"nodeCount":      len(nodes),
+		"reachableNodes": reachable,
+		"nodes":          nodes,
+		"totals": map[string]any{
+			"disk":        totalDisk,
+			"objectBytes": objectBytes,
+			"objectCount": objectCount,
+		},
 	})
+}
+
+// fetchPeerSystemInfo logs in to a peer with the shared admin credentials and
+// reads its /api/v1/system. An unreachable peer is returned with Reachable=false
+// rather than failing the whole rollup.
+func (h *APIHandler) fetchPeerSystemInfo(id, addr string) NodeSystemInfo {
+	ni := NodeSystemInfo{NodeID: id, Address: addr}
+	scheme := "http"
+	if h.cfg != nil && h.cfg.Server.TLS.Enabled {
+		scheme = "https"
+	}
+	base := scheme + "://" + addr
+
+	token, err := h.peerLogin(base)
+	if err != nil {
+		return ni
+	}
+	req, err := http.NewRequest(http.MethodGet, base+"/api/v1/system", nil)
+	if err != nil {
+		return ni
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := clusterInfoClient.Do(req)
+	if err != nil {
+		return ni
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return ni
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&ni); err != nil {
+		return ni
+	}
+	ni.NodeID, ni.Address, ni.Reachable = id, addr, true
+	return ni
+}
+
+func (h *APIHandler) peerLogin(base string) (string, error) {
+	body, _ := json.Marshal(map[string]string{
+		"accessKey": h.cfg.Auth.AdminAccessKey,
+		"secretKey": h.cfg.Auth.AdminSecretKey,
+	})
+	resp, err := clusterInfoClient.Post(base+"/api/v1/auth/login", "application/json", bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	var out struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return "", err
+	}
+	return out.Token, nil
 }
 
 func uniqueNonEmpty(in []string) []string {

@@ -677,6 +677,9 @@ func (s *Server) Run() error {
 				return s.clusterProxy.OwnerAPIAddr(bucket, key)
 			},
 		)
+		// Cluster-wide capacity rollup: this node aggregates every node's
+		// /api/v1/system for the mc-admin-info style view.
+		apiHandler.SetClusterInfo(s.cfg.Cluster.NodeID, s.clusterProxy.NodeAddrs)
 	}
 
 	// Update checker (notifier always; auto-apply only if explicitly enabled).

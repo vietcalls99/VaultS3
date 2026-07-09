@@ -6,6 +6,15 @@ semantic-ish versioning via git tags (`vMAJOR.MINOR.PATCH`).
 
 ## [Unreleased]
 
+## [4.4.10] - 2026-07-09
+### Added
+- **Cluster-wide capacity overview.** `GET /api/v1/cluster/info` aggregates every
+  node's version and on-disk capacity into a cluster total plus a per-node
+  breakdown (unreachable nodes are marked, not fatal), the multi-node equivalent
+  of `mc admin info`. The dashboard Stats capacity panel and `vaults3-cli info` now
+  show the cluster totals and per-node rows when clustered, and fall back to the
+  single-node view otherwise.
+
 ## [4.4.9] - 2026-07-09
 ### Added
 - **Server and storage-capacity overview.** A new `GET /api/v1/system` endpoint
@@ -633,7 +642,8 @@ engines) plus an audit of the high-risk packages. Every fix has a regression tes
   dashboard, CLI, versioning, WORM, notifications, full-text search, FUSE mount,
   and multi-platform release binaries + Docker images.
 
-[Unreleased]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.9...HEAD
+[Unreleased]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.10...HEAD
+[4.4.10]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.9...v4.4.10
 [4.4.9]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.8...v4.4.9
 [4.4.8]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.7...v4.4.8
 [4.4.7]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.6...v4.4.7
