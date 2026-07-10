@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"runtime"
 	"time"
@@ -18,6 +19,7 @@ type NodeSystemInfo struct {
 	NodeID      string       `json:"nodeId,omitempty"`
 	Address     string       `json:"address,omitempty"`
 	Reachable   bool         `json:"reachable,omitempty"`
+	Error       string       `json:"error,omitempty"` // why a peer is unreachable
 	Version     string       `json:"version"`
 	OS          string       `json:"os"`
 	Arch        string       `json:"arch"`
@@ -147,25 +149,30 @@ func (h *APIHandler) fetchPeerSystemInfo(id, addr string) NodeSystemInfo {
 
 	token, err := h.peerLogin(base)
 	if err != nil {
+		ni.Error = "login: " + err.Error()
 		return ni
 	}
 	req, err := http.NewRequest(http.MethodGet, base+"/api/v1/system", nil)
 	if err != nil {
+		ni.Error = err.Error()
 		return ni
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := clusterInfoClient.Do(req)
 	if err != nil {
+		ni.Error = err.Error()
 		return ni
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
+		ni.Error = fmt.Sprintf("system returned HTTP %d", resp.StatusCode)
 		return ni
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&ni); err != nil {
+		ni.Error = err.Error()
 		return ni
 	}
-	ni.NodeID, ni.Address, ni.Reachable = id, addr, true
+	ni.NodeID, ni.Address, ni.Reachable, ni.Error = id, addr, true, ""
 	return ni
 }
 
@@ -179,11 +186,20 @@ func (h *APIHandler) peerLogin(base string) (string, error) {
 		return "", err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		// A 403 usually means this address is not serving the dashboard API (e.g.
+		// it points at the S3 port, or a split console_port); 401 means the admin
+		// credentials differ between nodes.
+		return "", fmt.Errorf("HTTP %d (peer may not serve /api/v1 at this address, or admin credentials differ)", resp.StatusCode)
+	}
 	var out struct {
 		Token string `json:"token"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return "", err
+	}
+	if out.Token == "" {
+		return "", fmt.Errorf("login returned no token")
 	}
 	return out.Token, nil
 }

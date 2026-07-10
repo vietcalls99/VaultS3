@@ -151,7 +151,14 @@ func apiToken() (string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return "", fmt.Errorf("login failed: HTTP %d", resp.StatusCode)
+		switch resp.StatusCode {
+		case 403:
+			return "", fmt.Errorf("login failed: HTTP 403 — the endpoint %q may not be serving the dashboard API (a 403 means the request fell through to the S3 handler). If you run a split console_port, point --endpoint / VAULTS3_ENDPOINT at the console/dashboard port", endpoint)
+		case 401:
+			return "", fmt.Errorf("login failed: HTTP 401 — the dashboard API requires the ROOT admin access/secret key (VAULTS3_ACCESS_KEY/SECRET_KEY), not an IAM user key")
+		default:
+			return "", fmt.Errorf("login failed: HTTP %d", resp.StatusCode)
+		}
 	}
 
 	var result struct {

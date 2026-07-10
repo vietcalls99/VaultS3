@@ -143,7 +143,9 @@ export default function StatsPage() {
                       <span className="text-gray-600 dark:text-gray-300">{formatSize(n.disk.usedBytes)} / {formatSize(n.disk.totalBytes)}</span>
                     </>
                   ) : (
-                    <span className="text-red-500 dark:text-red-400">unreachable</span>
+                    <span className="text-red-500 dark:text-red-400 truncate" title={n.error}>
+                      unreachable{n.error ? ` — ${n.error}` : ''}
+                    </span>
                   )}
                 </div>
               ))}

@@ -51,6 +51,7 @@ export interface NodeSystemInfo extends SystemInfo {
   nodeId?: string
   address?: string
   reachable?: boolean
+  error?: string
 }
 
 export interface ClusterInfo {

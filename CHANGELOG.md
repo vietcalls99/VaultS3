@@ -6,6 +6,17 @@ semantic-ish versioning via git tags (`vMAJOR.MINOR.PATCH`).
 
 ## [Unreleased]
 
+## [4.4.12] - 2026-07-10
+### Fixed
+- **Cluster capacity now reports *why* a node is unreachable** (issue #29). The
+  rollup silently marked peers unreachable when the login to fetch their info
+  failed (it did not check the login response status). Each unreachable node now
+  carries an error reason (shown in the dashboard and `vaults3-cli info`), e.g. a
+  peer HTTP 403 (its `peer_apis` address is not serving the dashboard API, often a
+  split `console_port` or the S3 port) versus a connection refused. `vaults3-cli
+  info`'s own login error is likewise clearer: a 403 means the endpoint is not
+  serving `/api/v1`, and a 401 means the root admin key is required (not an IAM key).
+
 ## [4.4.11] - 2026-07-10
 ### Fixed
 - **`vaults3-cli object ls` now lists past 1000 objects and shows a folder view**
@@ -650,7 +661,8 @@ engines) plus an audit of the high-risk packages. Every fix has a regression tes
   dashboard, CLI, versioning, WORM, notifications, full-text search, FUSE mount,
   and multi-platform release binaries + Docker images.
 
-[Unreleased]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.11...HEAD
+[Unreleased]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.12...HEAD
+[4.4.12]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.11...v4.4.12
 [4.4.11]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.10...v4.4.11
 [4.4.10]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.9...v4.4.10
 [4.4.9]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.8...v4.4.9

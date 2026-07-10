@@ -37,11 +37,21 @@ func TestClusterInfoAggregation(t *testing.T) {
 	defer peer.Close()
 	peerAddr := strings.TrimPrefix(peer.URL, "http://")
 
+	// A peer whose login returns 403 (e.g. address points at the S3 port) — must
+	// be reported unreachable WITH a reason, not silently.
+	peer403 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte(`{"error":"access denied"}`))
+	}))
+	defer peer403.Close()
+	peer403Addr := strings.TrimPrefix(peer403.URL, "http://")
+
 	h.SetClusterInfo("node-a", func() map[string]string {
 		return map[string]string{
 			"node-a": "self:9000",   // self — computed locally, not fetched
 			"node-b": peerAddr,      // reachable peer
-			"node-c": "127.0.0.1:1", // unreachable
+			"node-c": "127.0.0.1:1", // connection refused
+			"node-d": peer403Addr,   // login 403
 		}
 	})
 
@@ -67,27 +77,32 @@ func TestClusterInfoAggregation(t *testing.T) {
 	if !out.Clustered {
 		t.Error("expected clustered=true")
 	}
-	if out.NodeCount != 3 {
-		t.Errorf("nodeCount=%d, want 3", out.NodeCount)
+	if out.NodeCount != 4 {
+		t.Errorf("nodeCount=%d, want 4", out.NodeCount)
 	}
 	if out.ReachableNodes != 2 {
 		t.Errorf("reachableNodes=%d, want 2 (self + node-b)", out.ReachableNodes)
 	}
 
-	var b, c *NodeSystemInfo
+	var b, c, d *NodeSystemInfo
 	for i := range out.Nodes {
 		switch out.Nodes[i].NodeID {
 		case "node-b":
 			b = &out.Nodes[i]
 		case "node-c":
 			c = &out.Nodes[i]
+		case "node-d":
+			d = &out.Nodes[i]
 		}
 	}
 	if b == nil || !b.Reachable || b.Version != "v9" || b.Disk.TotalBytes != 1000 {
 		t.Fatalf("reachable peer node-b not aggregated correctly: %+v", b)
 	}
-	if c == nil || c.Reachable {
-		t.Fatalf("unreachable peer node-c should be marked down: %+v", c)
+	if c == nil || c.Reachable || c.Error == "" {
+		t.Fatalf("connection-refused peer node-c should be down with a reason: %+v", c)
+	}
+	if d == nil || d.Reachable || !strings.Contains(d.Error, "403") {
+		t.Fatalf("403-login peer node-d should be down with a 403 reason: %+v", d)
 	}
 	// Totals include the peer's 1000 plus this node's real disk.
 	if out.Totals.Disk.TotalBytes < 1000 {

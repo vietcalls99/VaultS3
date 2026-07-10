@@ -34,6 +34,7 @@ func runInfo(_ []string) {
 		Nodes          []struct {
 			NodeID      string   `json:"nodeId"`
 			Reachable   bool     `json:"reachable"`
+			Error       string   `json:"error"`
 			Version     string   `json:"version"`
 			OS          string   `json:"os"`
 			Arch        string   `json:"arch"`
@@ -81,7 +82,11 @@ func runInfo(_ []string) {
 				fmt.Printf("  %-24s %-10s %s / %s\n", n.NodeID, n.Version,
 					humanBytes(n.Disk.UsedBytes), humanBytes(n.Disk.TotalBytes))
 			} else {
-				fmt.Printf("  %-24s unreachable\n", n.NodeID)
+				reason := n.Error
+				if reason == "" {
+					reason = "unreachable"
+				}
+				fmt.Printf("  %-24s unreachable (%s)\n", n.NodeID, reason)
 			}
 		}
 	}
