@@ -19,6 +19,22 @@ export interface UploadResult {
   key: string
   size: number
   contentType: string
+  error?: string
+}
+
+// uploadErrorMessage extracts a human-readable reason from a failed upload XHR.
+// The server returns per-file reasons in the JSON body (e.g. "write object: no
+// space left on device"), so surface the first one instead of a blank
+// "Upload failed".
+export function uploadErrorMessage(xhr: XMLHttpRequest): string {
+  try {
+    const results = JSON.parse(xhr.responseText) as UploadResult[]
+    const failed = results.find((r) => r.error)
+    if (failed?.error) return `Upload failed: ${failed.key}: ${failed.error}`
+  } catch {
+    // body was not the expected JSON array; fall through to the status text
+  }
+  return `Upload failed${xhr.statusText ? `: ${xhr.statusText}` : ''}`
 }
 
 export interface BulkDeleteResult {
@@ -85,7 +101,7 @@ export function uploadFiles(
       if (xhr.status >= 200 && xhr.status < 300) {
         resolve(JSON.parse(xhr.responseText))
       } else {
-        reject(new Error(`Upload failed: ${xhr.statusText}`))
+        reject(new Error(uploadErrorMessage(xhr)))
       }
     }
 

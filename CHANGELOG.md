@@ -6,6 +6,19 @@ semantic-ish versioning via git tags (`vMAJOR.MINOR.PATCH`).
 
 ## [Unreleased]
 
+## [4.4.15] - 2026-07-12
+### Fixed
+- **Dashboard uploads now report storage failures instead of silently failing**
+  (issue #26). A large upload that failed mid-write (for example a full data disk)
+  was swallowed: the handler skipped the file, wrote no log, and still returned
+  HTTP 200 with an empty result, so the browser showed a bare "upload failed" with
+  nothing in the server logs. Each failed file is now logged with the real reason
+  and returned to the client (the dashboard surfaces it, e.g. `write object: no
+  space left on device`), and the request returns a 5xx when any file failed. Note
+  for very large objects: a single browser POST holds the whole transfer with no
+  resume, so an S3 client that does multipart upload (aws-cli, rclone, s3cmd) is
+  the robust path for multi-GB files.
+
 ## [4.4.14] - 2026-07-10
 ### Fixed
 - **Cluster capacity now gathers peer info over the cluster channel** (issue #29).
@@ -673,7 +686,8 @@ engines) plus an audit of the high-risk packages. Every fix has a regression tes
   dashboard, CLI, versioning, WORM, notifications, full-text search, FUSE mount,
   and multi-platform release binaries + Docker images.
 
-[Unreleased]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.14...HEAD
+[Unreleased]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.15...HEAD
+[4.4.15]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.14...v4.4.15
 [4.4.14]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.12...v4.4.14
 [4.4.12]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.11...v4.4.12
 [4.4.11]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.10...v4.4.11

@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react'
-import { uploadFiles, type UploadResult } from '../api/objects'
+import { uploadFiles, uploadErrorMessage, type UploadResult } from '../api/objects'
 import { getToken } from '../api/client'
 
 interface Props {
@@ -102,7 +102,7 @@ export default function UploadDropzone({ bucket, prefix, onUploaded }: Props) {
             if (xhr.status >= 200 && xhr.status < 300) {
               resolve(JSON.parse(xhr.responseText))
             } else {
-              reject(new Error(`Upload failed: ${xhr.statusText}`))
+              reject(new Error(uploadErrorMessage(xhr)))
             }
           }
           xhr.onerror = () => reject(new Error('Upload failed'))

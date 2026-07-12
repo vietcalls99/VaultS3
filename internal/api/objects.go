@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime"
 	"net/http"
 	"path/filepath"
@@ -37,6 +38,7 @@ type uploadResult struct {
 	Key         string `json:"key"`
 	Size        int64  `json:"size"`
 	ContentType string `json:"contentType"`
+	Error       string `json:"error,omitempty"` // set when this file failed to store
 }
 
 func (h *APIHandler) handleListObjects(w http.ResponseWriter, r *http.Request, bucket string) {
@@ -205,6 +207,17 @@ func (h *APIHandler) handleUpload(w http.ResponseWriter, r *http.Request, bucket
 	prefix := r.URL.Query().Get("prefix")
 	versioning, _ := h.store.GetBucketVersioning(bucket)
 	var results []uploadResult
+	var anyFailed bool
+
+	// fail records a per-file failure: it logs the real reason (uploads used to
+	// swallow write errors silently and still return 200, so a full disk or a
+	// permission error surfaced only as a blank "upload failed" with no logs —
+	// issue #26) and reports it back to the client.
+	fail := func(key string, err error) {
+		slog.Error("dashboard upload failed", "bucket", bucket, "key", key, "error", err)
+		results = append(results, uploadResult{Key: key, Error: err.Error()})
+		anyFailed = true
+	}
 
 	for {
 		part, err := mr.NextPart()
@@ -254,6 +267,7 @@ func (h *APIHandler) handleUpload(w http.ResponseWriter, r *http.Request, bucket
 				written, ferr := h.forwardUpload(ownerAddr, bucket, prefix, filename, ct, part)
 				part.Close()
 				if ferr != nil {
+					fail(key, ferr)
 					continue
 				}
 				results = append(results, uploadResult{Key: key, Size: written, ContentType: ct})
@@ -274,6 +288,7 @@ func (h *APIHandler) handleUpload(w http.ResponseWriter, r *http.Request, bucket
 			written, etag, err = h.engine.PutObjectVersion(bucket, key, versionID, part, -1)
 			part.Close()
 			if err != nil {
+				fail(key, err)
 				continue
 			}
 			if old, e := h.store.GetObjectMeta(bucket, key); e == nil && old.VersionID != "" {
@@ -293,6 +308,7 @@ func (h *APIHandler) handleUpload(w http.ResponseWriter, r *http.Request, bucket
 			written, etag, err = h.engine.PutObject(bucket, key, part, -1)
 			part.Close()
 			if err != nil {
+				fail(key, err)
 				continue
 			}
 			h.store.PutObjectMeta(metadata.ObjectMeta{
@@ -313,7 +329,14 @@ func (h *APIHandler) handleUpload(w http.ResponseWriter, r *http.Request, bucket
 	if results == nil {
 		results = []uploadResult{}
 	}
-	writeJSON(w, http.StatusOK, results)
+	// If any file failed to store, return 5xx so the dashboard shows a real failure
+	// instead of a silent "success". Per-file reasons ride along in the results
+	// (each failed entry carries an `error`), and were already logged above.
+	status := http.StatusOK
+	if anyFailed {
+		status = http.StatusInternalServerError
+	}
+	writeJSON(w, status, results)
 }
 
 // handleBulkDelete deletes multiple objects at once.
