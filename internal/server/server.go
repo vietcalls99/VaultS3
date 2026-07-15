@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -48,6 +49,31 @@ import (
 // Version is the running build version, set by main from the -ldflags value.
 var Version = "dev"
 
+// clusterControllerAdapter adapts *cluster.Node to api.ClusterController so the
+// admin API can drive membership without importing internal/cluster's raft types.
+type clusterControllerAdapter struct{ n *cluster.Node }
+
+func (a clusterControllerAdapter) SelfID() string             { return a.n.NodeID() }
+func (a clusterControllerAdapter) IsLeader() bool             { return a.n.IsLeader() }
+func (a clusterControllerAdapter) LeaderID() string           { return a.n.LeaderID() }
+func (a clusterControllerAdapter) Join(id, addr string) error { return a.n.Join(id, addr) }
+func (a clusterControllerAdapter) Leave(id string) error      { return a.n.Leave(id) }
+
+func (a clusterControllerAdapter) Members() []api.ClusterMember {
+	leaderID := a.n.LeaderID()
+	members := a.n.MembersInfo()
+	out := make([]api.ClusterMember, 0, len(members))
+	for _, m := range members {
+		out = append(out, api.ClusterMember{
+			NodeID:   m.ID,
+			Address:  m.Address,
+			Suffrage: m.Suffrage,
+			Leader:   m.ID == leaderID,
+		})
+	}
+	return out
+}
+
 type Server struct {
 	cfg             *config.Config
 	store           *metadata.Store
@@ -77,6 +103,7 @@ type Server struct {
 	rebalancer      *cluster.Rebalancer
 	ecHealer        *erasure.Healer
 	s3Auth          *s3.Authenticator
+	writable        *atomic.Bool // node-local write gate shared by the S3 + admin handlers (drain)
 }
 
 func New(cfg *config.Config) (*Server, error) {
@@ -332,6 +359,12 @@ func New(cfg *config.Config) (*Server, error) {
 
 	// Initialize S3 handler
 	s3h := s3.NewHandler(metaStore, engine, auth, cfg.Encryption.Enabled, cfg.Server.Domain, mc)
+
+	// Node write gate (drain): shared by the S3 handler (rejects object writes when
+	// draining) and the admin API (toggles it). Starts writable.
+	writable := &atomic.Bool{}
+	writable.Store(true)
+	s3h.SetWritableFlag(writable)
 
 	// Per-bucket encryption keys: when a master key is configured, opting a bucket
 	// into SSE-S3 provisions a per-bucket data key (see
@@ -641,6 +674,7 @@ func New(cfg *config.Config) (*Server, error) {
 		failoverProxy:   failoverProxy,
 		failureDetector: failureDetector,
 		rebalancer:      rebalancer,
+		writable:        writable,
 		ecHealer:        ecHealer,
 		s3Auth:          auth,
 	}, nil
@@ -654,6 +688,9 @@ func (s *Server) Run() error {
 	// Dashboard API
 	apiHandler := api.NewAPIHandler(s.metaStore, s.engine, s.metrics, s.cfg, s.activity)
 	apiHandler.SetS3Authenticator(s.s3Auth)
+	// Share the node write gate so the admin drain/undrain endpoints toggle the
+	// same flag the S3 handler enforces.
+	apiHandler.SetWritable(s.writable)
 	apiHandler.SetSearchIndex(s.searchIndex)
 	apiHandler.SetMigrator(migrate.NewManager(s.store, s.engine))
 	apiHandler.SetSnapshotManager(snapshot.NewManager(s.store))
@@ -680,6 +717,18 @@ func (s *Server) Run() error {
 		// Cluster-wide capacity rollup: this node aggregates every node's
 		// /api/v1/system for the mc-admin-info style view.
 		apiHandler.SetClusterInfo(s.cfg.Cluster.NodeID, s.clusterProxy.NodeAddrs, s.cfg.Cluster.Secret)
+	}
+	// Cluster membership + rebalance operations for the admin API / vaults3-cli.
+	if s.clusterNode != nil {
+		apiHandler.SetClusterController(
+			clusterControllerAdapter{n: s.clusterNode},
+			func() {
+				if s.rebalancer != nil {
+					s.rebalancer.Trigger()
+				}
+			},
+			func() bool { return s.rebalancer != nil && s.rebalancer.IsRunning() },
+		)
 	}
 
 	// Update checker (notifier always; auto-apply only if explicitly enabled).
@@ -768,6 +817,7 @@ func (s *Server) Run() error {
 	if s.clusterNode != nil {
 		mux.HandleFunc("/cluster/status", s.clusterNode.StatusHandler())
 		mux.HandleFunc("/cluster/sysinfo", apiHandler.ClusterSysInfoHandler(s.cfg.Cluster.Secret))
+		mux.HandleFunc("/cluster/drain", apiHandler.ClusterDrainHandler(s.cfg.Cluster.Secret))
 		mux.HandleFunc("/cluster/join", s.clusterNode.JoinHandler())
 		mux.HandleFunc("/cluster/leave", s.clusterNode.LeaveHandler())
 		mux.HandleFunc("/cluster/apply", s.clusterNode.ApplyHandler())
@@ -940,6 +990,7 @@ func (s *Server) Run() error {
 		interNodeMux := http.NewServeMux()
 		interNodeMux.HandleFunc("/cluster/status", s.clusterNode.StatusHandler())
 		interNodeMux.HandleFunc("/cluster/sysinfo", apiHandler.ClusterSysInfoHandler(s.cfg.Cluster.Secret))
+		interNodeMux.HandleFunc("/cluster/drain", apiHandler.ClusterDrainHandler(s.cfg.Cluster.Secret))
 		interNodeMux.HandleFunc("/cluster/join", s.clusterNode.JoinHandler())
 		interNodeMux.HandleFunc("/cluster/leave", s.clusterNode.LeaveHandler())
 		interNodeMux.HandleFunc("/cluster/apply", s.clusterNode.ApplyHandler())

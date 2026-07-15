@@ -92,6 +92,8 @@ func main() {
 		runUser(cmdArgs)
 	case "replication":
 		runReplication(cmdArgs)
+	case "cluster":
+		runCluster(cmdArgs)
 	case "mount":
 		runMount(cmdArgs)
 	case "umount":
@@ -123,6 +125,7 @@ Commands:
   object               Object operations (ls, put, get, rm, cp, presign)
   user                 IAM user operations (list, create, delete, attach-policy)
   replication          Replication operations (status, queue)
+  cluster              Cluster ops (status, join, leave, drain, undrain, rebalance, decommission)
   mount                Mount a bucket as a local filesystem (FUSE)
   umount               Unmount a FUSE mountpoint
   version              Show version

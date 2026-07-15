@@ -6,6 +6,23 @@ semantic-ish versioning via git tags (`vMAJOR.MINOR.PATCH`).
 
 ## [Unreleased]
 
+## [4.4.17] - 2026-07-15
+### Added
+- **Cluster operations in `vaults3-cli` and the admin API** (issue #31). New
+  `vaults3-cli cluster` subcommands — `status`, `join`, `leave`, `drain`,
+  `undrain`, `rebalance`, `decommission` — backed by admin-authenticated
+  `/api/v1/cluster/*` endpoints, so cluster membership no longer needs raw curl.
+  - **Drain**: a node can be told to stop accepting writes (S3 object PUT/POST/
+    DELETE return `503 SlowDown`) while continuing to serve reads, so it can be
+    taken down for maintenance or evacuated. Drain a specific node by ID from any
+    node (forwarded over the cluster channel) or the node you connect to.
+  - **Rebalance**: trigger the background pass that moves objects to their correct
+    hash-ring owner after membership changes.
+  - **Decommission**: guided drain + rebalance for replacing a server (removal is
+    left to an explicit `cluster leave` after you confirm data has moved).
+  - Adding a member in Kubernetes is already automatic — scaling the StatefulSet
+    replicas auto-joins the new pod; documented in docs/SCALING.md.
+
 ## [4.4.16] - 2026-07-12
 ### Fixed
 - **Large multipart uploads no longer fail with `MalformedXML` on completion**
@@ -696,7 +713,8 @@ engines) plus an audit of the high-risk packages. Every fix has a regression tes
   dashboard, CLI, versioning, WORM, notifications, full-text search, FUSE mount,
   and multi-platform release binaries + Docker images.
 
-[Unreleased]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.16...HEAD
+[Unreleased]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.17...HEAD
+[4.4.17]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.16...v4.4.17
 [4.4.16]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.15...v4.4.16
 [4.4.15]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.14...v4.4.15
 [4.4.14]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.12...v4.4.14

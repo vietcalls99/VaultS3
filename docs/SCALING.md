@@ -195,13 +195,113 @@ cluster:
    # each entry should show "suffrage": "Voter"
    ```
 
+### Adding a new server to a running cluster
+
+How you add a server depends on how you run VaultS3.
+
+#### Kubernetes (StatefulSet) — automatic
+
+The Helm StatefulSet auto-joins new pods: pod-0 bootstraps the cluster and every
+other pod is started with `VAULTS3_CLUSTER_JOIN_ADDR` pointing at pod-0, so a new
+pod retries joining the leader until it is admitted (a restart with a new pod IP
+self-heals the same way). To add a server you just scale up:
+
+```bash
+kubectl scale statefulset vaults3 --replicas=4
+
+# watch the new pod get admitted as a voting member
+vaults3-cli cluster status
+# NODE ID   RAFT ADDRESS        SUFFRAGE   ROLE
+# node-0    10.0.0.1:7000       Voter      leader
+# ...
+# node-3    10.0.0.4:7000       Voter      follower   ← new pod
+```
+
+No manual join step is needed. If you use PVCs, the new pod gets its own volumes;
+run `vaults3-cli cluster rebalance` afterwards so existing data spreads onto it.
+
+#### Non-Kubernetes (VM / bare metal / Docker)
+
+1. **Provision the new host** with the same VaultS3 version and the shared cluster
+   secret.
+2. **Start it with clustering enabled and pointed at the leader** (auto-join):
+   ```yaml
+   cluster:
+     enabled: true
+     node_id: "node-4"            # unique across the cluster
+     bind_addr: "10.0.0.5"
+     raft_port: 7000
+     join_addr: "10.0.0.1:7000"   # any existing node; it forwards to the leader
+     secret: "<same secret as the rest of the cluster>"
+   ```
+   The node keeps retrying `join_addr` until the leader admits it.
+
+   **Or** add it explicitly from any machine with the admin key:
+   ```bash
+   vaults3-cli cluster join node-4 10.0.0.5:7000    # <nodeId> <raftAddress>
+   ```
+   (`cluster join` is executed by the leader; if you point it at a follower the
+   request is forwarded.)
+3. **Verify** it joined as a voting member:
+   ```bash
+   vaults3-cli cluster status        # node-4 should appear as Voter
+   ```
+4. **Rebalance** so data spreads onto the new node:
+   ```bash
+   vaults3-cli cluster rebalance
+   ```
+
+> Keep the cluster at an **odd number of voting members** (3, 5, 7) so Raft can
+> form a majority — see "Quorum sizing" above.
+
 ### Cluster API reference
 
 | Action | Method & path | Body |
 |--------|---------------|------|
-| Status / membership | `GET /cluster/status` |, |
+| Status / membership | `GET /cluster/status` | |
 | Add a node | `POST /cluster/join` | `{"node_id":"...","addr":"host:raftPort"}` |
 | Remove a node | `POST /cluster/leave` | `{"node_id":"..."}` |
+
+### Day-2 cluster operations with `vaults3-cli`
+
+`vaults3-cli cluster` wraps the admin API (uses your root admin access/secret key,
+same as `vaults3-cli info`) so you don't need raw curl. Point `--endpoint` at any
+node (or your load balancer / Kubernetes service).
+
+```bash
+export VAULTS3_ENDPOINT=http://vaults3:9000
+export VAULTS3_ACCESS_KEY=admin VAULTS3_SECRET_KEY=...
+
+vaults3-cli cluster status                     # members, leader, drain state
+vaults3-cli cluster join  node-3 10.0.0.4:7000 # add a member (run against the leader)
+vaults3-cli cluster leave node-3               # remove a member (run against the leader)
+vaults3-cli cluster drain   node-2             # stop a node accepting writes (reads continue)
+vaults3-cli cluster undrain node-2             # resume writes
+vaults3-cli cluster rebalance                  # move objects to their correct owner
+vaults3-cli cluster decommission node-2        # guided drain + rebalance before replacing a node
+```
+
+**Adding a member.** See "Adding a new server to a running cluster" above —
+Kubernetes auto-joins on `kubectl scale`; elsewhere start the node with
+`cluster.join_addr` set or run `vaults3-cli cluster join <id> <raftAddr>`.
+
+**Draining.** A drained node returns `503 SlowDown` for S3 object writes while
+still serving reads, so you can cordon it before maintenance. In a hash-ring
+cluster, new writes for that node's keys keep routing to it until you also change
+membership — drain is for taking a node down gracefully, not for permanently
+steering traffic away.
+
+**Replacing a server (decommission).** To move a member's data onto the rest of
+the cluster and retire it:
+
+1. `vaults3-cli cluster decommission <nodeId>` — drains the node and triggers a
+   rebalance so its objects move to the remaining members.
+2. Watch `vaults3-cli cluster status` / `vaults3-cli info` until its data has moved.
+3. `vaults3-cli cluster leave <nodeId>`, then stop the node.
+
+> **Zero-data-loss decommission requires `placement.replica_count >= 2`** so a
+> second copy already exists on another node. With `replica_count: 1`, removing a
+> node before its data has fully rebalanced off it loses that data.
 
 ---
 

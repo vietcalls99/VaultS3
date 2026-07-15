@@ -44,6 +44,24 @@ type ServerInfo struct {
 	Suffrage string `json:"suffrage"` // Voter, Nonvoter
 }
 
+// MembersInfo returns the current Raft members (id, raft address, suffrage) as
+// plain structs, so callers outside this package don't need the raft types.
+func (n *Node) MembersInfo() []ServerInfo {
+	servers, err := n.Servers()
+	if err != nil {
+		return nil
+	}
+	out := make([]ServerInfo, 0, len(servers))
+	for _, s := range servers {
+		out = append(out, ServerInfo{
+			ID:       string(s.ID),
+			Address:  string(s.Address),
+			Suffrage: s.Suffrage.String(),
+		})
+	}
+	return out
+}
+
 // StatusHandler returns an HTTP handler for /cluster/status.
 func (n *Node) StatusHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync/atomic"
 
 	"github.com/Kodiqa-Solutions/VaultS3/internal/bucketcrypto"
 	"github.com/Kodiqa-Solutions/VaultS3/internal/metadata"
@@ -60,7 +61,13 @@ type Handler struct {
 	accessUpdater       *metadata.AccessUpdater
 	replicationPeerKeys map[string]bool
 	clusterProxy        ClusterProxyFunc
+	writable            *atomic.Bool // node drain gate; nil ⇒ always writable
 }
+
+// SetWritableFlag wires the shared node-local write gate. When it holds false the
+// node is draining and rejects S3 object writes (used to evacuate a cluster
+// member); reads are unaffected.
+func (h *Handler) SetWritableFlag(w *atomic.Bool) { h.writable = w }
 
 func NewHandler(store metadata.StoreAPI, engine storage.Engine, auth *Authenticator, encryptionEnabled bool, domain string, mc *metrics.Collector) *Handler {
 	h := &Handler{
@@ -219,6 +226,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Handle CORS preflight
 	if r.Method == http.MethodOptions && bucket != "" {
 		h.handleCORSPreflight(w, r, bucket)
+		return
+	}
+
+	// Drain gate: a node being evacuated (POST /api/v1/cluster/drain) rejects new
+	// object writes with 503 while still serving reads, so it can be replaced or
+	// taken down for maintenance without failing GETs.
+	if h.writable != nil && !h.writable.Load() && key != "" &&
+		(r.Method == http.MethodPut || r.Method == http.MethodPost || r.Method == http.MethodDelete) {
+		writeS3Error(w, "SlowDown", "This node is draining and not accepting writes", http.StatusServiceUnavailable)
 		return
 	}
 

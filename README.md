@@ -133,7 +133,7 @@ VaultS3 is honest about what's battle-tested versus still maturing. Pick the lan
   - 📖 See the **[Scaling & Operations Guide](docs/SCALING.md)** for multi-disk erasure coding, multi-node cluster setup, large-prefix listing, and lost-disk / lost-server recovery runbooks
 - **Active-active replication**: Bidirectional site-to-site sync with vector clocks for causal ordering, pluggable conflict resolution (last-writer-wins, largest-object, site-preference), and change log for efficient delta sync
 - **Async replication**: One-way async replication to peer VaultS3 instances with BoltDB-backed queue, retry with exponential backoff, and loop prevention
-- **CLI tool**: Standalone `vaults3-cli` binary for bucket, object, user, and replication management without AWS CLI, plus `vaults3-cli info` for server version and storage capacity (used / free / total)
+- **CLI tool**: Standalone `vaults3-cli` binary for bucket, object, user, and replication management without AWS CLI, plus `vaults3-cli info` for server version and storage capacity (used / free / total) and `vaults3-cli cluster` for day-2 cluster operations (status, join, leave, drain/undrain a member, rebalance, decommission — see [docs/SCALING.md](docs/SCALING.md))
 - **Capacity overview**: `GET /api/v1/system` and the dashboard Stats page report the version and on-disk capacity (total / used / free, aggregated across the data, cold-tier, and erasure directories) alongside logical object usage, so you can see how full the storage is at a glance. In a cluster, `GET /api/v1/cluster/info` (and the same dashboard panel / `vaults3-cli info`) aggregate capacity across all nodes with a per-node breakdown, an `mc admin info`-style view
 - **Presigned upload restrictions**: Enforce max file size, content type whitelist, and key prefix on presigned PUT URLs
 - **Full-text search**: In-memory search index over object metadata, tags, content type, and key patterns with incremental updates
@@ -304,9 +304,11 @@ VaultS3 is honest about what's battle-tested versus still maturing. Pick the lan
 | Settings | `GET /api/v1/settings` | Done |
 | System / Capacity | `GET /api/v1/system` | Done |
 | Cluster Capacity | `GET /api/v1/cluster/info` | Done |
-| Cluster Status | `GET /cluster/status` | Done |
-| Cluster Join | `POST /cluster/join` | Done |
-| Cluster Leave | `POST /cluster/leave` | Done |
+| Cluster Status | `GET /cluster/status`, `GET /api/v1/cluster/status` | Done |
+| Cluster Join | `POST /cluster/join`, `POST /api/v1/cluster/join` | Done |
+| Cluster Leave | `POST /cluster/leave`, `POST /api/v1/cluster/leave` | Done |
+| Cluster Drain / Undrain | `POST /api/v1/cluster/{drain,undrain}` | Done |
+| Cluster Rebalance | `POST /api/v1/cluster/rebalance` | Done |
 | Replication Sync | `POST /_replication/sync` | Done |
 | List Objects V1 | `GET /{bucket}?marker=` | Done |
 | Replication Config | `PUT/GET/DELETE /{bucket}?replication` | Done |
@@ -1028,6 +1030,13 @@ vaults3-cli user delete alice
 # Replication monitoring
 vaults3-cli replication status
 vaults3-cli replication queue
+
+# Cluster operations (see docs/SCALING.md)
+vaults3-cli cluster status                     # members, leader, drain state
+vaults3-cli cluster join node-3 10.0.0.4:7000  # add a member (against the leader)
+vaults3-cli cluster drain node-2               # stop a node accepting writes (reads continue)
+vaults3-cli cluster rebalance                  # move objects to their correct owner
+vaults3-cli cluster decommission node-2        # guided drain + rebalance before replacing a node
 ```
 
 Build both binaries with `make build` or just the CLI with `make cli`.
@@ -1399,7 +1408,7 @@ See [SECURITY.md](SECURITY.md) for vulnerability reporting policy and deployment
 ```
 VaultS3/
 ├── cmd/vaults3/main.go        — Server entry point
-├── cmd/vaults3-cli/           — CLI tool (bucket, object, user, replication commands)
+├── cmd/vaults3-cli/           — CLI tool (bucket, object, user, replication, cluster commands)
 ├── internal/
 │   ├── config/                — YAML config loader
 │   ├── server/                — HTTP server, routing, and auto-TLS
@@ -1532,7 +1541,7 @@ partition two sites and resolve the conflict. New logic there should keep that b
 - [x] IP allowlist/blocklist (global and per-user CIDR restrictions, IPv4/IPv6)
 - [x] S3 event notifications (per-bucket webhooks, event type + prefix/suffix filtering, retry with backoff)
 - [x] Async replication (one-way to peer VaultS3 instances, BoltDB queue, retry with exponential backoff, loop prevention)
-- [x] CLI tool (`vaults3-cli`, bucket, object, user, replication management)
+- [x] CLI tool (`vaults3-cli`, bucket, object, user, replication, cluster management)
 - [x] Presigned upload restrictions (max size, content type whitelist, key prefix enforcement)
 - [x] Full-text search (in-memory index over keys, content types, tags. `GET /api/v1/search`)
 - [x] Webhook virus scanning (ClamAV/VirusTotal integration, quarantine bucket, fail-open/closed modes)

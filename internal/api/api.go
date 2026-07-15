@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync/atomic"
 
 	"github.com/Kodiqa-Solutions/VaultS3/internal/backup"
 	"github.com/Kodiqa-Solutions/VaultS3/internal/bucketcrypto"
@@ -57,6 +58,10 @@ type APIHandler struct {
 	clusterSelfID    string                                  // this node's cluster ID ("" if single-node)
 	clusterNodeAddrs func() map[string]string                // nodeID -> peer addr for all cluster nodes (nil if single-node)
 	clusterSecret    string                                  // shared secret for the inter-node /cluster/sysinfo call
+	clusterCtl       ClusterController                       // membership ops (join/leave/status); nil if single-node
+	writable         *atomic.Bool                            // node-local write gate (drain); nil ⇒ always writable
+	triggerRebalance func()                                  // kick a background rebalance pass (nil if single-node)
+	rebalanceRunning func() bool                             // whether a rebalance is in progress
 }
 
 // ReplicationFunc is called after a dashboard-initiated object mutation so the
@@ -218,7 +223,12 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		strings.HasPrefix(path, "/tiering/") ||
 		strings.HasPrefix(path, "/settings") ||
 		path == "/compact" ||
-		path == "/presign"
+		path == "/presign" ||
+		path == "/cluster/join" ||
+		path == "/cluster/leave" ||
+		path == "/cluster/drain" ||
+		path == "/cluster/undrain" ||
+		path == "/cluster/rebalance"
 
 	if adminPaths && !h.isAdminUser(r) {
 		writeError(w, http.StatusForbidden, "admin access required")
@@ -386,6 +396,20 @@ func (h *APIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Cluster-wide capacity rollup across all nodes (mc-admin-info style)
 	case path == "/cluster/info" && r.Method == http.MethodGet:
 		h.handleClusterInfo(w, r)
+
+	// Cluster membership + operations (status readable; mutations admin-only above)
+	case path == "/cluster/status" && r.Method == http.MethodGet:
+		h.handleClusterStatus(w, r)
+	case path == "/cluster/join" && r.Method == http.MethodPost:
+		h.handleClusterJoin(w, r)
+	case path == "/cluster/leave" && r.Method == http.MethodPost:
+		h.handleClusterLeave(w, r)
+	case path == "/cluster/drain" && r.Method == http.MethodPost:
+		h.handleClusterDrain(w, r, true)
+	case path == "/cluster/undrain" && r.Method == http.MethodPost:
+		h.handleClusterDrain(w, r, false)
+	case path == "/cluster/rebalance" && r.Method == http.MethodPost:
+		h.handleClusterRebalance(w, r)
 
 	// Cost estimator (TCO vs managed clouds)
 	case path == "/tco" && r.Method == http.MethodGet:
