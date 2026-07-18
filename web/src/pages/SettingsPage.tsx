@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { getSettings, changeCredentials, type Settings } from '../api/settings'
+import { DASHBOARD_BASE } from '../basePath'
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null)
@@ -157,7 +158,7 @@ function ChangeCredentialsForm() {
       // Clear token and redirect to login after short delay
       setTimeout(() => {
         localStorage.removeItem('token')
-        window.location.href = '/dashboard/'
+        window.location.href = `${DASHBOARD_BASE}/`
       }, 2000)
     } catch (err) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to update credentials' })

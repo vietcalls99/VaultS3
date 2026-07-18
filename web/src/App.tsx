@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { DASHBOARD_BASE } from './basePath'
 import { AuthProvider } from './hooks/useAuth'
 import { ThemeProvider } from './hooks/useTheme'
 import { ToastProvider } from './hooks/useToast'
@@ -30,7 +31,7 @@ export default function App() {
     <ThemeProvider>
       <AuthProvider>
         <ToastProvider>
-        <BrowserRouter basename="/dashboard">
+        <BrowserRouter basename={DASHBOARD_BASE}>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
             <Route path="/oidc-callback" element={<OIDCCallbackPage />} />

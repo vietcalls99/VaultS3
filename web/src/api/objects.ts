@@ -1,4 +1,5 @@
 import { apiFetch, getToken } from './client'
+import { API_BASE } from '../basePath'
 
 export interface ObjectItem {
   key: string
@@ -66,12 +67,12 @@ export function bulkDeleteObjects(bucket: string, keys: string[]): Promise<BulkD
 
 export function getDownloadUrl(bucket: string, key: string): string {
   const token = getToken()
-  return `/api/v1/buckets/${bucket}/download/${key}?token=${token}`
+  return `${API_BASE}/buckets/${bucket}/download/${key}?token=${token}`
 }
 
 export function getDownloadZipUrl(bucket: string, keys: string[]): string {
   const token = getToken()
-  return `/api/v1/buckets/${bucket}/download-zip?keys=${encodeURIComponent(keys.join(','))}&token=${token}`
+  return `${API_BASE}/buckets/${bucket}/download-zip?keys=${encodeURIComponent(keys.join(','))}&token=${token}`
 }
 
 export function uploadFiles(
@@ -88,7 +89,7 @@ export function uploadFiles(
 
     const token = getToken()
     const xhr = new XMLHttpRequest()
-    xhr.open('POST', `/api/v1/buckets/${bucket}/upload?prefix=${encodeURIComponent(prefix)}`)
+    xhr.open('POST', `${API_BASE}/buckets/${bucket}/upload?prefix=${encodeURIComponent(prefix)}`)
     if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`)
 
     xhr.upload.onprogress = (e) => {

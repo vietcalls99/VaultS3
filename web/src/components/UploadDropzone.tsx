@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from 'react'
 import { uploadFiles, uploadErrorMessage, type UploadResult } from '../api/objects'
 import { getToken } from '../api/client'
+import { API_BASE } from '../basePath'
 
 interface Props {
   bucket: string
@@ -91,7 +92,7 @@ export default function UploadDropzone({ bucket, prefix, onUploaded }: Props) {
 
         const token = getToken()
         const xhr = new XMLHttpRequest()
-        xhr.open('POST', `/api/v1/buckets/${bucket}/upload?prefix=${encodeURIComponent(prefix)}`)
+        xhr.open('POST', `${API_BASE}/buckets/${bucket}/upload?prefix=${encodeURIComponent(prefix)}`)
         if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`)
 
         const results = await new Promise<UploadResult[]>((resolve, reject) => {

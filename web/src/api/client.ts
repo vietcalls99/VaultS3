@@ -1,4 +1,6 @@
-const BASE = '/api/v1'
+import { API_BASE, DASHBOARD_BASE } from '../basePath'
+
+const BASE = API_BASE
 const TOKEN_KEY = 'vaults3_token'
 
 export function getToken(): string | null {
@@ -32,7 +34,7 @@ export async function apiFetch<T>(path: string, opts: RequestInit = {}): Promise
   })
   if (res.status === 401) {
     clearToken()
-    window.location.href = '/dashboard/login'
+    window.location.href = `${DASHBOARD_BASE}/login`
     throw new Error('Unauthorized')
   }
   if (!res.ok) {

@@ -1,5 +1,6 @@
 import { useState, useEffect, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { DASHBOARD_BASE } from '../basePath'
 import { useAuth } from '../hooks/useAuth'
 import { useTheme } from '../hooks/useTheme'
 import { getOIDCConfig, type OIDCConfigResponse } from '../api/auth'
@@ -56,7 +57,7 @@ export default function LoginPage() {
   const handleSSOLogin = () => {
     if (!oidcConfig?.issuerUrl || !oidcConfig?.clientId) return
     const nonce = Math.random().toString(36).substring(2)
-    const redirectUri = `${window.location.origin}/dashboard/oidc-callback`
+    const redirectUri = `${window.location.origin}${DASHBOARD_BASE}/oidc-callback`
     const authUrl = `${oidcConfig.issuerUrl}/authorize?` +
       `response_type=id_token` +
       `&client_id=${encodeURIComponent(oidcConfig.clientId)}` +

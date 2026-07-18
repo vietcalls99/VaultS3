@@ -6,6 +6,18 @@ semantic-ish versioning via git tags (`vMAJOR.MINOR.PATCH`).
 
 ## [Unreleased]
 
+## [4.4.22] - 2026-07-18
+### Added
+- **Host the dashboard under a reverse-proxy subpath** (issue #36). The dashboard
+  hardcoded absolute `/dashboard/` and `/api/v1/` paths, so it couldn't be served
+  behind a proxy at, say, `https://example.com/vaults3/dashboard/`. A new
+  `server.base_path` (env `VAULTS3_BASE_PATH`, e.g. `/vaults3`) makes the server
+  rewrite the served `index.html` — asset URLs and a runtime base the SPA reads
+  for its router basename and API base — so everything resolves under the subpath.
+  When `base_path` is unset the server also auto-detects the proxy's
+  `X-Forwarded-Prefix` header (a forwarded prefix is sanitized to safe path
+  characters). Default is empty, so a normal root deployment is unchanged.
+
 ## [4.4.21] - 2026-07-17
 ### Fixed
 - **Dashboard file browser now shows folder dates** (issue #35 follow-up). v4.4.20
@@ -768,7 +780,8 @@ engines) plus an audit of the high-risk packages. Every fix has a regression tes
   dashboard, CLI, versioning, WORM, notifications, full-text search, FUSE mount,
   and multi-platform release binaries + Docker images.
 
-[Unreleased]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.21...HEAD
+[Unreleased]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.22...HEAD
+[4.4.22]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.21...v4.4.22
 [4.4.21]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.20...v4.4.21
 [4.4.20]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.19...v4.4.20
 [4.4.19]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.18...v4.4.19

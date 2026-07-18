@@ -111,6 +111,7 @@ VaultS3 is honest about what's battle-tested versus still maturing. Pick the lan
 - **Graceful shutdown**: Drains in-flight requests on SIGTERM/SIGINT with configurable timeout
 - **TLS support**: Optional HTTPS with configurable cert/key paths
 - **Separate dashboard port**: Optionally serve the Web UI + its API on a dedicated port (`server.console_port`, e.g. 9001) apart from the S3 API, so each can have its own firewall rules / TLS / reverse proxy (MinIO-style)
+- **Reverse-proxy subpath**: Host the whole app under a subpath (`server.base_path`, e.g. `/vaults3`) so the dashboard works behind `https://example.com/vaults3/dashboard/`; asset URLs, SPA routes, and API calls are rewritten at serve time (also auto-detects the proxy's `X-Forwarded-Prefix`)
 - **Object versioning**: Per-bucket versioning with version IDs, delete markers, version-specific GET/DELETE/HEAD
 - **Object locking (WORM)**: Legal hold and retention (GOVERNANCE/COMPLIANCE) to prevent deletion
 - **Lifecycle rules**: Per-bucket object expiration (auto-delete after N days) and aborting incomplete multipart uploads after N days (S3 `AbortIncompleteMultipartUpload`, reclaims the parts left by killed/failed clients), run by a background worker
@@ -575,6 +576,7 @@ All settings can be overridden via environment variables (takes precedence over 
 | `VAULTS3_PORT` | Server port | `9000` |
 | `VAULTS3_ADDRESS` | Bind address | `0.0.0.0` |
 | `VAULTS3_DOMAIN` | Domain for virtual-hosted URLs | _(empty)_ |
+| `VAULTS3_BASE_PATH` | Reverse-proxy subpath (e.g. `/vaults3`) | _(empty)_ |
 | `VAULTS3_DATA_DIR` | Object storage directory | `./data` |
 | `VAULTS3_METADATA_DIR` | BoltDB metadata directory | `./metadata` |
 | `VAULTS3_ENCRYPTION_KEY` | 64-char hex key (enables encryption) | _(disabled)_ |
