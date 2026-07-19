@@ -10,7 +10,7 @@ import (
 // filesystem: root and extension-less routes fall back to index.html (200),
 // while a missing asset with a file extension returns 404.
 func TestDashboardHandler(t *testing.T) {
-	h := Handler("")
+	h := Handler("", false)
 
 	t.Run("root serves html", func(t *testing.T) {
 		rec := httptest.NewRecorder()
@@ -52,7 +52,7 @@ func TestDashboardHandler(t *testing.T) {
 	})
 
 	t.Run("configured base rewrites assets + base global", func(t *testing.T) {
-		hb := Handler("/vaults3")
+		hb := Handler("/vaults3", false)
 		rec := httptest.NewRecorder()
 		hb.ServeHTTP(rec, httptest.NewRequest("GET", "/dashboard/", nil))
 		body := rec.Body.String()
@@ -64,14 +64,26 @@ func TestDashboardHandler(t *testing.T) {
 		}
 	})
 
-	t.Run("X-Forwarded-Prefix auto-detected when no config", func(t *testing.T) {
+	t.Run("X-Forwarded-Prefix IGNORED by default (untrusted)", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", "/dashboard/", nil)
+		req.Header.Set("X-Forwarded-Prefix", "/spoofed")
+		h.ServeHTTP(rec, req) // h = Handler("", false)
+		body := rec.Body.String()
+		if strings.Contains(body, "/spoofed") {
+			t.Fatalf("untrusted forwarded prefix was applied: %s", body)
+		}
+	})
+
+	t.Run("X-Forwarded-Prefix honored only when trusted", func(t *testing.T) {
+		ht := Handler("", true)
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest("GET", "/dashboard/", nil)
 		req.Header.Set("X-Forwarded-Prefix", "/proxied/")
-		h.ServeHTTP(rec, req)
+		ht.ServeHTTP(rec, req)
 		body := rec.Body.String()
 		if !strings.Contains(body, `"/proxied/dashboard/assets/`) {
-			t.Fatalf("forwarded prefix not applied: %s", body)
+			t.Fatalf("trusted forwarded prefix not applied: %s", body)
 		}
 		if !strings.Contains(body, `<meta name="vaults3-base" content="/proxied">`) {
 			t.Fatalf("base meta from header not set: %s", body)
@@ -79,10 +91,11 @@ func TestDashboardHandler(t *testing.T) {
 	})
 
 	t.Run("malicious forwarded prefix is sanitized (no markup injection)", func(t *testing.T) {
+		ht := Handler("", true)
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest("GET", "/dashboard/", nil)
 		req.Header.Set("X-Forwarded-Prefix", `/x"><script>alert(1)</script>`)
-		h.ServeHTTP(rec, req)
+		ht.ServeHTTP(rec, req)
 		body := rec.Body.String()
 		if strings.Contains(body, "<script>alert(1)</script>") {
 			t.Fatalf("unsanitized header injected markup: %s", body)

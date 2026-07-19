@@ -260,9 +260,13 @@ type ServerConfig struct {
 	ConsolePort    int    `yaml:"console_port"`
 	// BasePath hosts the whole app under a reverse-proxy subpath, e.g. "/vaults3"
 	// so the dashboard is reachable at /vaults3/dashboard/ (issue #36). Empty =
-	// served at the root. The dashboard also auto-detects the proxy's
-	// X-Forwarded-Prefix header when this is unset.
+	// served at the root.
 	BasePath string `yaml:"base_path"`
+	// TrustForwardedPrefix lets the subpath be auto-detected from the proxy's
+	// X-Forwarded-Prefix header when BasePath is unset. Off by default: the header
+	// is client-supplied, so only enable it behind a proxy you trust to set/strip
+	// it. When BasePath is set it always wins and this is irrelevant (issue #36).
+	TrustForwardedPrefix bool `yaml:"trust_forwarded_prefix"`
 }
 
 type TLSConfig struct {
@@ -463,6 +467,9 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("VAULTS3_BASE_PATH"); v != "" {
 		cfg.Server.BasePath = v
+	}
+	if v := os.Getenv("VAULTS3_TRUST_FORWARDED_PREFIX"); v != "" {
+		cfg.Server.TrustForwardedPrefix = v == "true" || v == "1"
 	}
 	if v := os.Getenv("VAULTS3_CONSOLE_PORT"); v != "" {
 		if p, err := strconv.Atoi(v); err == nil {

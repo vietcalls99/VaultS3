@@ -41,17 +41,27 @@ func TestAuthReverseProxySubpath(t *testing.T) {
 
 	// Configured base_path restores the prefix → authenticates.
 	cfgd := NewAuthenticator(testAccessKey, testSecretKey, store, nil, nil)
-	cfgd.SetBasePath("/sistemas/s3-nac")
+	cfgd.SetBasePath("/sistemas/s3-nac", false)
 	if _, err := cfgd.Authenticate(newReq()); err != nil {
 		t.Fatalf("configured base_path: auth failed: %v", err)
 	}
 
-	// The proxy's X-Forwarded-Prefix header works with no config too.
+	// X-Forwarded-Prefix is IGNORED by default (untrusted) → the stripped path
+	// still mismatches, so a spoofed header can't influence verification.
+	untrusted := NewAuthenticator(testAccessKey, testSecretKey, store, nil, nil)
+	ur := newReq()
+	ur.Header.Set("X-Forwarded-Prefix", "/sistemas/s3-nac")
+	if _, err := untrusted.Authenticate(ur); err == nil {
+		t.Fatal("untrusted X-Forwarded-Prefix should not be honored")
+	}
+
+	// With trust enabled, the header reconstructs the path → authenticates.
 	hdr := NewAuthenticator(testAccessKey, testSecretKey, store, nil, nil)
+	hdr.SetBasePath("", true)
 	r := newReq()
 	r.Header.Set("X-Forwarded-Prefix", "/sistemas/s3-nac")
 	if _, err := hdr.Authenticate(r); err != nil {
-		t.Fatalf("X-Forwarded-Prefix: auth failed: %v", err)
+		t.Fatalf("trusted X-Forwarded-Prefix: auth failed: %v", err)
 	}
 
 	// A normal (non-proxied) request with no base path is unaffected.

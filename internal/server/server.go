@@ -356,7 +356,7 @@ func New(cfg *config.Config) (*Server, error) {
 	// Behind a reverse-proxy subpath, the client signs the URI with the prefix that
 	// the proxy strips before we see it, so SigV4 verification must add it back to
 	// match (issue #36). Reuses server.base_path.
-	auth.SetBasePath(cfg.Server.BasePath)
+	auth.SetBasePath(cfg.Server.BasePath, cfg.Server.TrustForwardedPrefix)
 
 	// Load persisted admin credentials (overrides config/env if previously changed via dashboard)
 	if ak, sk, err := store.GetAdminCredentials(); err == nil && ak != "" && sk != "" {
@@ -911,7 +911,7 @@ func (s *Server) Run() error {
 			http.Redirect(w, r, "/dashboard/favicon.svg", http.StatusMovedPermanently)
 		})
 		mux.Handle("/api/v1/", apiHandler)
-		mux.Handle("/dashboard/", dashboard.Handler(s.cfg.Server.BasePath))
+		mux.Handle("/dashboard/", dashboard.Handler(s.cfg.Server.BasePath, s.cfg.Server.TrustForwardedPrefix))
 	}
 
 	// Register pprof endpoints when debug mode is enabled
@@ -1140,7 +1140,7 @@ func (s *Server) Run() error {
 			http.Redirect(w, r, "/dashboard/favicon.svg", http.StatusMovedPermanently)
 		})
 		cmux.Handle("/api/v1/", apiHandler)
-		cmux.Handle("/dashboard/", dashboard.Handler(s.cfg.Server.BasePath))
+		cmux.Handle("/dashboard/", dashboard.Handler(s.cfg.Server.BasePath, s.cfg.Server.TrustForwardedPrefix))
 		cmux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, "/dashboard/", http.StatusFound)
 		})

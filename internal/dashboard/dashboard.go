@@ -21,7 +21,7 @@ var distFS embed.FS
 // runtime base global rewritten so the browser requests
 // <base>/dashboard/assets/... and the SPA router / API client use <base>. Empty =
 // today's behavior (served at /dashboard).
-func Handler(basePath string) http.Handler {
+func Handler(basePath string, trustForwarded bool) http.Handler {
 	dist, _ := fs.Sub(distFS, "dist")
 	fileServer := http.FileServer(http.FS(dist))
 	indexHTML, _ := fs.ReadFile(dist, "index.html")
@@ -36,10 +36,11 @@ func Handler(basePath string) http.Handler {
 			r.URL.Path = urlPath
 		}
 
-		// Base path: explicit config wins; otherwise honor the proxy's forwarded
-		// prefix so it works with zero config behind a well-behaved reverse proxy.
+		// Base path: explicit config wins. The client-supplied X-Forwarded-Prefix is
+		// only honored when explicitly trusted (trust_forwarded_prefix), so a spoofed
+		// header can't influence the served base on a default deployment.
 		base := configBase
-		if base == "" {
+		if base == "" && trustForwarded {
 			base = sanitizeBase(r.Header.Get("X-Forwarded-Prefix"))
 		}
 

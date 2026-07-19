@@ -25,23 +25,33 @@ type Authenticator struct {
 	globalAllowCIDR []string
 	globalBlockCIDR []string
 	basePath        string // reverse-proxy subpath the client signed but a path-stripping proxy removed (issue #36)
+	trustForwarded  bool   // honor the client-supplied X-Forwarded-Prefix when basePath is unset
 }
 
 // SetBasePath configures the reverse-proxy subpath (e.g. "/vaults3") under which
 // clients reach the S3 API. Behind such a proxy the client signs the URI with the
 // prefix but the proxy strips it, so SigV4 verification must add it back to match
-// (issue #36). Empty = served at the root (signature verification unchanged).
-func (a *Authenticator) SetBasePath(p string) { a.basePath = normalizeBasePrefix(p) }
+// (issue #36). trustForwarded additionally allows the subpath to come from the
+// (client-supplied) X-Forwarded-Prefix header when base is empty — off by default.
+// Empty base + untrusted header = signature verification unchanged.
+func (a *Authenticator) SetBasePath(p string, trustForwarded bool) {
+	a.basePath = normalizeBasePrefix(p)
+	a.trustForwarded = trustForwarded
+}
 
 // canonicalBasePrefix returns the subpath to prepend to r.URL.Path when rebuilding
 // the canonical URI the client signed. Configured base_path wins; otherwise the
-// proxy's X-Forwarded-Prefix header. "" when not behind a subpath, so the
-// canonical request is then byte-for-byte identical to before.
+// proxy's X-Forwarded-Prefix header, but ONLY when trust_forwarded_prefix is set
+// (the header is client-supplied). "" when not behind a subpath, so the canonical
+// request is then byte-for-byte identical to before.
 func (a *Authenticator) canonicalBasePrefix(r *http.Request) string {
 	if a.basePath != "" {
 		return a.basePath
 	}
-	return normalizeBasePrefix(r.Header.Get("X-Forwarded-Prefix"))
+	if a.trustForwarded {
+		return normalizeBasePrefix(r.Header.Get("X-Forwarded-Prefix"))
+	}
+	return ""
 }
 
 // normalizeBasePrefix trims a subpath to a canonical "/prefix" (leading slash, no

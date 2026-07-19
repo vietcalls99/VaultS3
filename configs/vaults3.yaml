@@ -9,10 +9,15 @@ server:
   console_address: ""  # empty = same as `address`
   console_port: 0      # e.g. 9001 to put the dashboard on its own port
   # Host the whole app under a reverse-proxy subpath so the dashboard is reachable
-  # at <base_path>/dashboard/ (e.g. https://example.com/vaults3/dashboard/). Empty
-  # = served at the root. When unset, the dashboard also auto-detects the proxy's
-  # X-Forwarded-Prefix header. (env: VAULTS3_BASE_PATH)
+  # at <base_path>/dashboard/ (e.g. https://example.com/vaults3/dashboard/) and the
+  # S3 API verifies signatures against the original path. Empty = served at the
+  # root. (env: VAULTS3_BASE_PATH)
   base_path: ""        # e.g. "/vaults3"
+  # Auto-detect the subpath from the proxy's X-Forwarded-Prefix header when
+  # base_path is unset. OFF by default because that header is client-supplied —
+  # enable only behind a proxy you trust to set/strip it. base_path always wins.
+  # (env: VAULTS3_TRUST_FORWARDED_PREFIX)
+  trust_forwarded_prefix: false
   tls:
     enabled: false
     cert_file: ""

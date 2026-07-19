@@ -6,6 +6,18 @@ semantic-ish versioning via git tags (`vMAJOR.MINOR.PATCH`).
 
 ## [Unreleased]
 
+## [4.4.26] - 2026-07-19
+### Security
+- **The `X-Forwarded-Prefix` header is no longer trusted by default** (issue #36
+  hardening, thanks @arthurvmdantas). v4.4.22–24 auto-detected the reverse-proxy
+  subpath from that client-supplied header when `base_path` was unset. That was not
+  an auth bypass (SigV4 still requires the secret key; the dashboard value is
+  sanitized and same-origin), but as defense-in-depth it is now opt-in: set
+  `server.trust_forwarded_prefix: true` (env `VAULTS3_TRUST_FORWARDED_PREFIX`) to
+  honor the header. By default only `server.base_path` is used, so a spoofed header
+  can't influence the served base or signature verification. `base_path` always
+  wins regardless of this flag.
+
 ## [4.4.25] - 2026-07-19
 ### Fixed
 - **Cluster read-your-writes: `GET`/`HEAD` after a `PUT` no longer returns
@@ -834,7 +846,8 @@ engines) plus an audit of the high-risk packages. Every fix has a regression tes
   dashboard, CLI, versioning, WORM, notifications, full-text search, FUSE mount,
   and multi-platform release binaries + Docker images.
 
-[Unreleased]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.25...HEAD
+[Unreleased]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.26...HEAD
+[4.4.26]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.25...v4.4.26
 [4.4.25]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.24...v4.4.25
 [4.4.24]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.23...v4.4.24
 [4.4.23]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.22...v4.4.23
