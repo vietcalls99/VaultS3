@@ -6,6 +6,19 @@ semantic-ish versioning via git tags (`vMAJOR.MINOR.PATCH`).
 
 ## [Unreleased]
 
+## [4.4.27] - 2026-07-19
+### Changed
+- **Cluster read-your-writes reworked to a read-side barrier** (issue #37). v4.4.25
+  made a follower block on its own FSM before acking every write; that added a
+  replication round-trip to every write and collapsed throughput under high
+  concurrency (a `warp` GET benchmark at `--concurrent=64` still saw `Object not
+  found` and unstable writes). The barrier moved to the read path: writes are fast
+  again (no per-write wait), and a GET/HEAD that misses on the owner catches up to
+  the leader and re-checks before returning (`GetObjectMetaConsistent`), so a read
+  right after a write still sees it. The barrier only fires on the rare read that
+  races a write; a genuine miss still returns `404`. Bucket-existence checks
+  already used this barrier-on-miss.
+
 ## [4.4.26] - 2026-07-19
 ### Security
 - **The `X-Forwarded-Prefix` header is no longer trusted by default** (issue #36
@@ -846,7 +859,8 @@ engines) plus an audit of the high-risk packages. Every fix has a regression tes
   dashboard, CLI, versioning, WORM, notifications, full-text search, FUSE mount,
   and multi-platform release binaries + Docker images.
 
-[Unreleased]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.26...HEAD
+[Unreleased]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.27...HEAD
+[4.4.27]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.26...v4.4.27
 [4.4.26]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.25...v4.4.26
 [4.4.25]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.24...v4.4.25
 [4.4.24]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.23...v4.4.24

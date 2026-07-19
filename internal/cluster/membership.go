@@ -275,16 +275,12 @@ func (n *Node) ForwardToLeader(data []byte) error {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 		return fmt.Errorf("cluster: leader rejected forwarded write (%d): %s", resp.StatusCode, string(body))
 	}
-	// The leader replies with the committed log index; wait for our own FSM to
-	// apply it so a read-after-write on THIS node sees the write (issue #37).
-	var out struct {
-		Index uint64 `json:"index"`
-	}
-	if json.NewDecoder(io.LimitReader(resp.Body, 256)).Decode(&out) == nil && out.Index > 0 {
-		if werr := n.WaitForApply(out.Index, 5*time.Second); werr != nil {
-			slog.Warn("cluster: read-your-writes barrier timed out", "error", werr)
-		}
-	}
+	// Note: we deliberately do NOT block here waiting for this node's FSM to apply
+	// the write. Doing so added a replication round-trip to every follower write and
+	// collapsed throughput under concurrency (issue #37). Read-your-writes is
+	// instead handled on the READ path via a cheap barrier-on-miss (see
+	// DistributedStore.GetObjectMeta / BucketExists), which only pays a cost on the
+	// rare read that actually races a write.
 	return nil
 }
 
@@ -306,8 +302,7 @@ func (n *Node) ApplyHandler() http.HandlerFunc {
 			http.Error(w, "read body", http.StatusBadRequest)
 			return
 		}
-		idx, err := n.ApplyIndexed(data)
-		if err != nil {
+		if err := n.Apply(data); err != nil {
 			if err == ErrNotLeader {
 				// Leadership moved between forward and apply — tell the caller to retry.
 				http.Error(w, "not leader", http.StatusServiceUnavailable)
@@ -316,11 +311,7 @@ func (n *Node) ApplyHandler() http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		// Return the committed log index so the forwarding follower can wait for its
-		// own FSM to apply it (read-your-writes, issue #37).
-		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]uint64{"index": idx})
 	}
 }
 

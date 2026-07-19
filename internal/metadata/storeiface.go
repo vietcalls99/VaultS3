@@ -70,6 +70,10 @@ type StoreAPI interface {
 	GetMultipartUpload(uploadID string) (*MultipartUpload, error)
 	GetNotificationConfig(bucket string) (*BucketNotificationConfig, error)
 	GetObjectMeta(bucket, key string) (*ObjectMeta, error)
+	// GetObjectMetaConsistent is GetObjectMeta with a cluster read-your-writes
+	// guarantee (barrier-on-miss); identical to GetObjectMeta on a single node.
+	// Used by the object GET/HEAD read path (issue #37).
+	GetObjectMetaConsistent(bucket, key string) (*ObjectMeta, error)
 	GetObjectVersion(bucket, key, versionID string) (*ObjectMeta, error)
 	GetPublicAccessBlock(bucket string) (*PublicAccessBlockConfig, error)
 	GetReplicationConfig(bucket string) (string, error)

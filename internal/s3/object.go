@@ -502,8 +502,9 @@ func (h *ObjectHandler) GetObject(w http.ResponseWriter, r *http.Request, bucket
 		}
 		w.Header().Set("X-Amz-Version-Id", versionID)
 	} else {
-		// Get latest version
-		meta, _ = h.store.GetObjectMeta(bucket, key)
+		// Get latest version. Consistent read: barrier-on-miss so a GET right after
+		// a PUT on another cluster node doesn't spuriously 404 (issue #37).
+		meta, _ = h.store.GetObjectMetaConsistent(bucket, key)
 		if meta != nil && meta.DeleteMarker {
 			w.Header().Set("X-Amz-Delete-Marker", "true")
 			if meta.VersionID != "" {
@@ -963,7 +964,9 @@ func (h *ObjectHandler) HeadObject(w http.ResponseWriter, r *http.Request, bucke
 		}
 		w.Header().Set("X-Amz-Version-Id", versionID)
 	} else {
-		meta, _ = h.store.GetObjectMeta(bucket, key)
+		// Consistent read (barrier-on-miss) so a HEAD right after a PUT on another
+		// cluster node doesn't spuriously 404 (issue #37).
+		meta, _ = h.store.GetObjectMetaConsistent(bucket, key)
 		if meta != nil && meta.DeleteMarker {
 			w.Header().Set("X-Amz-Delete-Marker", "true")
 			if meta.VersionID != "" {

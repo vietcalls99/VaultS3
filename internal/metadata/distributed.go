@@ -47,6 +47,20 @@ func (d *DistributedStore) BucketExists(name string) bool {
 	return false
 }
 
+// GetObjectMetaConsistent does a barrier-on-miss so the object GET/HEAD read path
+// is read-your-writes: an object written on another node (or on this follower via
+// a forwarded write) that hasn't replicated here yet would otherwise 404 a just-
+// PUT object. Only the WRITE path (which uses plain GetObjectMeta) stays fast, so
+// this adds no per-write latency — the barrier only fires on the rare read that
+// races a write, and a genuine miss still returns not-found (issue #37).
+func (d *DistributedStore) GetObjectMetaConsistent(bucket, key string) (*ObjectMeta, error) {
+	if meta, err := d.Store.GetObjectMeta(bucket, key); meta != nil {
+		return meta, err
+	}
+	_ = d.raft.ReadBarrier(2 * time.Second)
+	return d.Store.GetObjectMeta(bucket, key)
+}
+
 // Command types — must match cluster.CommandType values.
 // We duplicate the constants here to avoid an import cycle.
 const (

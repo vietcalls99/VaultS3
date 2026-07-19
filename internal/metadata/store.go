@@ -622,6 +622,12 @@ func (s *Store) PutObjectMeta(meta ObjectMeta) error {
 	})
 }
 
+// GetObjectMetaConsistent is GetObjectMeta on a single node (no cluster, no
+// barrier). DistributedStore overrides it to add a barrier-on-miss (issue #37).
+func (s *Store) GetObjectMetaConsistent(bucket, key string) (*ObjectMeta, error) {
+	return s.GetObjectMeta(bucket, key)
+}
+
 func (s *Store) GetObjectMeta(bucket, key string) (*ObjectMeta, error) {
 	var meta *ObjectMeta
 	err := s.db.View(func(tx *bolt.Tx) error {
