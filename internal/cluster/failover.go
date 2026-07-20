@@ -22,43 +22,58 @@ func NewFailoverProxy(proxy *Proxy, detector *FailureDetector) *FailoverProxy {
 }
 
 // ShouldProxy returns the target node for a request, accounting for failed nodes.
-// If the primary node is down, it returns the next healthy replica.
-// Returns empty string if this node should handle the request.
+// Returns empty string if this node should handle the request locally.
+//
+// Only the first replica_count nodes on the ring actually hold an object's data.
+// A read served by any other node returns a phantom "Object not found" for a live
+// object, so we route strictly within that holder set — we do NOT widen it for
+// failover, because a node outside it has nothing to serve (issue #37). This is the
+// crux of the read-after-write miss: a healthy owner that a per-node failure
+// detector has (possibly wrongly) marked down must NOT cause the read to be
+// answered by a data-less node; it is forwarded to the owner regardless.
 func (f *FailoverProxy) ShouldProxy(bucket, key string) string {
 	if bucket == "" {
 		return ""
 	}
 
-	replicaCount := f.placement.ReplicaCount
-	if replicaCount <= 1 {
-		replicaCount = 2 // at least check primary + 1 replica for failover
+	holders := f.ring.GetNodes(bucket, key, f.dataReplicas())
+	if len(holders) == 0 {
+		return ""
 	}
-
-	nodes := f.ring.GetNodes(bucket, key, replicaCount)
 	selfID := f.node.NodeID()
 
-	for _, nodeID := range nodes {
+	// If this node holds the data, serve locally.
+	for _, nodeID := range holders {
 		if nodeID == selfID {
-			// This node is in the replica set — handle locally
 			return ""
 		}
-		if f.detector == nil || !f.detector.IsNodeDown(nodeID) {
-			// Found a healthy node that isn't us — proxy to it
-			return nodeID
-		}
-		slog.Debug("failover: skipping down node",
-			"node_id", nodeID,
-			"bucket", bucket,
-			"key", key,
-		)
 	}
 
-	// All nodes are down or unreachable — handle locally as last resort
-	slog.Warn("failover: all target nodes down, handling locally",
-		"bucket", bucket,
-		"key", key,
-	)
-	return ""
+	// Forward to the first healthy holder.
+	for _, nodeID := range holders {
+		if f.detector == nil || !f.detector.IsNodeDown(nodeID) {
+			return nodeID
+		}
+		slog.Debug("failover: holder marked down", "node_id", nodeID, "bucket", bucket, "key", key)
+	}
+
+	// Every holder is marked down. Forward to the primary owner anyway rather than
+	// answering from this node (which has no data): the "down" may be a false
+	// positive — in which case the read succeeds — and if the owner really is down,
+	// an honest upstream error beats a misleading 404 (issue #37).
+	slog.Warn("failover: all data holders marked down, forwarding to primary owner",
+		"owner", holders[0], "bucket", bucket, "key", key)
+	return holders[0]
+}
+
+// dataReplicas is the number of ring nodes that hold an object's data — the set a
+// read may legitimately be served from. Never less than 1.
+func (f *FailoverProxy) dataReplicas() int {
+	n := f.placement.ReplicaCount
+	if n < 1 {
+		n = 1
+	}
+	return n
 }
 
 // ForwardWithRetry attempts to forward a request to the primary node,

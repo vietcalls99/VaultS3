@@ -6,6 +6,27 @@ semantic-ish versioning via git tags (`vMAJOR.MINOR.PATCH`).
 
 ## [Unreleased]
 
+## [4.4.32] - 2026-07-20
+### Fixed
+- **Cluster reads are no longer served by a node that holds no data** (issue #37).
+  With `replica_count = 1` an object's data lives on exactly one node. Routing forced
+  the candidate set to two nodes "for failover", so when a per-node failure detector
+  marked the true owner down — including a false positive from a stale/unreachable
+  probe address — a `GET`/`HEAD` could be answered by the second-ranked node (or
+  handled locally) even though it holds no data, returning a phantom `Object not
+  found` for a live object that then "reappeared" on a retry routed elsewhere. This
+  is the read-after-write miss reported on a 12-node cluster that three prior
+  read-path fixes (v4.4.25–v4.4.31) did not reach, because the miss happens in
+  routing, before the consistent read runs. `ShouldProxy` now routes strictly within
+  the actual data-holder set (the first `replica_count` nodes): a read is served
+  locally only if this node holds the data, otherwise it is forwarded to the first
+  healthy holder, and if every holder is marked down it is still forwarded to the
+  primary owner rather than answered from an empty shard — so a falsely-down owner
+  still serves the read, and a genuinely-down single copy returns an honest upstream
+  error instead of a misleading 404. Legitimate failover with `replica_count >= 2`
+  (where other nodes really do hold the data) is unchanged. Unit-covered; happy-path
+  read-your-writes verified at 0 misses on a local multi-node cluster.
+
 ## [4.4.31] - 2026-07-20
 ### Added
 - **Opt-in read-404 cause tracing for cluster reads** (`VAULTS3_TRACE_READS=1`), to
@@ -915,7 +936,8 @@ engines) plus an audit of the high-risk packages. Every fix has a regression tes
   dashboard, CLI, versioning, WORM, notifications, full-text search, FUSE mount,
   and multi-platform release binaries + Docker images.
 
-[Unreleased]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.31...HEAD
+[Unreleased]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.32...HEAD
+[4.4.32]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.31...v4.4.32
 [4.4.31]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.30...v4.4.31
 [4.4.30]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.29...v4.4.30
 [4.4.29]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.28...v4.4.29
