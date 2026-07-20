@@ -585,6 +585,7 @@ All settings can be overridden via environment variables (takes precedence over 
 | `VAULTS3_TLS_KEY` | TLS private key file path | _(disabled)_ |
 | `VAULTS3_LOG_LEVEL` | Log level (`debug`, `info`, `warn`, `error`) | `info` |
 | `VAULTS3_TRACE_FORWARD` | Log per-hop latency (DNS/connect/reuse/TTFB) for proxied cluster reads | `0` |
+| `VAULTS3_TRACE_READS` | Log the cause (`meta_nil` vs `data_missing`) of cluster `GET`/`HEAD` 404s | `0` |
 
 ### Storage requirements
 

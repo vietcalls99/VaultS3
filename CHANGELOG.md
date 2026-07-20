@@ -6,6 +6,19 @@ semantic-ish versioning via git tags (`vMAJOR.MINOR.PATCH`).
 
 ## [Unreleased]
 
+## [4.4.31] - 2026-07-20
+### Added
+- **Opt-in read-404 cause tracing for cluster reads** (`VAULTS3_TRACE_READS=1`), to
+  diagnose the residual issue #37 read-after-write miss on a large cluster. When
+  enabled, every `GET`/`HEAD` that returns `404` logs whether the cause is
+  `meta_nil` (the object's Raft-replicated metadata hasn't arrived on this node — a
+  replication/consistency lag the consistent read waits out) or `data_missing` (the
+  metadata is present but this node has no data file — the read was served by a node
+  that isn't the shard owner, a routing problem), plus which node proxied it here.
+  On a local cluster (5 and 9 nodes, injected latency) the v4.4.29 read-your-writes
+  path reproduces 0 misses, so this trace is aimed at capturing the actual cause on
+  the reporter's 12-node topology. Off by default, zero overhead.
+
 ## [4.4.30] - 2026-07-20
 ### Added
 - **Opt-in per-hop latency tracing for cluster reads** (`VAULTS3_TRACE_FORWARD=1`),
@@ -902,7 +915,8 @@ engines) plus an audit of the high-risk packages. Every fix has a regression tes
   dashboard, CLI, versioning, WORM, notifications, full-text search, FUSE mount,
   and multi-platform release binaries + Docker images.
 
-[Unreleased]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.30...HEAD
+[Unreleased]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.31...HEAD
+[4.4.31]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.30...v4.4.31
 [4.4.30]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.29...v4.4.30
 [4.4.29]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.28...v4.4.29
 [4.4.28]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.27...v4.4.28

@@ -12,6 +12,7 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -20,6 +21,28 @@ import (
 	"github.com/Kodiqa-Solutions/VaultS3/internal/metadata"
 	"github.com/Kodiqa-Solutions/VaultS3/internal/storage"
 )
+
+// traceReads, when set via VAULTS3_TRACE_READS=1, logs the cause of every GET/HEAD
+// 404 in cluster mode (metadata-missing vs data-missing) plus whether the request
+// was proxied here and by which node. This distinguishes a metadata replication lag
+// (which the consistent read waits out) from a request being served by a node that
+// isn't the data owner (a routing/ownership problem the read path can't fix), for
+// diagnosing issue #37. Off by default, zero overhead.
+var traceReads = os.Getenv("VAULTS3_TRACE_READS") == "1"
+
+// traceRead404 logs a read 404 with its cause when read tracing is enabled.
+func traceRead404(r *http.Request, method, bucket, key, cause string) {
+	if !traceReads {
+		return
+	}
+	slog.Warn("read 404",
+		"method", method,
+		"bucket", bucket,
+		"key", key,
+		"cause", cause,
+		"proxied_from", r.Header.Get("X-VaultS3-Proxy"),
+	)
+}
 
 type ObjectHandler struct {
 	store metadata.StoreAPI
@@ -518,6 +541,7 @@ func (h *ObjectHandler) GetObject(w http.ResponseWriter, r *http.Request, bucket
 			// Metadata is authoritative: a deleted object is gone even if a data
 			// file lingers on a replica node, so don't serve phantom bytes from the
 			// engine (issue #34, same root cause as the phantom HEAD).
+			traceRead404(r, "GET", bucket, key, "meta_nil")
 			writeS3Error(w, "NoSuchKey", "Object not found", http.StatusNotFound)
 			return
 		}
@@ -529,6 +553,7 @@ func (h *ObjectHandler) GetObject(w http.ResponseWriter, r *http.Request, bucket
 			reader, size, err = h.engine.GetObject(bucket, key)
 		}
 		if err != nil {
+			traceRead404(r, "GET", bucket, key, "data_missing")
 			writeS3Error(w, "NoSuchKey", "Object not found", http.StatusNotFound)
 			return
 		}
