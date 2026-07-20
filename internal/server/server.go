@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/tls"
 	"fmt"
 	"log/slog"
@@ -927,6 +928,56 @@ func (s *Server) Run() error {
 	// Register cluster endpoints if enabled
 	if s.clusterNode != nil {
 		mux.HandleFunc("/cluster/status", s.clusterNode.StatusHandler())
+		// Read-only ownership probe (issue #37 diagnosis): from THIS pod's view, who
+		// owns a key, where a request would route, and whether this pod holds the
+		// key's metadata/data locally. curl it against every pod for the same key: if
+		// they disagree on "owner", the placement ring is inconsistent across pods
+		// (the read-after-write miss cause); if they agree but the owner lacks data,
+		// it's placement; if only metadata lags, it's replication.
+		mux.HandleFunc("/cluster/ownership", func(w http.ResponseWriter, r *http.Request) {
+			// Reveals object existence + cluster topology, and this is the public S3
+			// port, so require the cluster secret when one is configured.
+			if s.cfg.Cluster.Secret != "" && !hmac.Equal([]byte(r.Header.Get("X-Cluster-Secret")), []byte(s.cfg.Cluster.Secret)) {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
+			bucket := r.URL.Query().Get("bucket")
+			key := r.URL.Query().Get("key")
+			ring := s.clusterProxy.Ring()
+			rc := s.clusterProxy.Placement().ReplicaCount
+			if rc < 1 {
+				rc = 1
+			}
+			owner := ring.GetNode(bucket, key)
+			would := ""
+			if s.failoverProxy != nil {
+				would = s.failoverProxy.ShouldProxy(bucket, key)
+			}
+			metaLocal := false
+			if m, _ := s.metaStore.GetObjectMeta(bucket, key); m != nil {
+				metaLocal = true
+			}
+			dataLocal := false
+			if rd, _, err := s.engine.GetObject(bucket, key); err == nil {
+				dataLocal = true
+				rd.Close()
+			}
+			jarr := func(ss []string) string {
+				var b strings.Builder
+				b.WriteByte('[')
+				for i, x := range ss {
+					if i > 0 {
+						b.WriteByte(',')
+					}
+					fmt.Fprintf(&b, "%q", x)
+				}
+				b.WriteByte(']')
+				return b.String()
+			}
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, "{\"node\":%q,\"owner\":%q,\"self_is_owner\":%v,\"holders\":%s,\"would_proxy_to\":%q,\"meta_present_local\":%v,\"data_present_local\":%v,\"ring_members\":%s}\n",
+				s.cfg.Cluster.NodeID, owner, owner == s.cfg.Cluster.NodeID, jarr(ring.GetNodes(bucket, key, rc)), would, metaLocal, dataLocal, jarr(ring.Nodes()))
+		})
 		mux.HandleFunc("/cluster/sysinfo", apiHandler.ClusterSysInfoHandler(s.cfg.Cluster.Secret))
 		mux.HandleFunc("/cluster/readindex", s.clusterNode.ReadIndexHandler())
 		mux.HandleFunc("/cluster/drain", apiHandler.ClusterDrainHandler(s.cfg.Cluster.Secret))

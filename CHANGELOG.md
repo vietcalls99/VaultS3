@@ -6,6 +6,21 @@ semantic-ish versioning via git tags (`vMAJOR.MINOR.PATCH`).
 
 ## [Unreleased]
 
+## [4.4.33] - 2026-07-20
+### Added
+- **`GET /cluster/ownership?bucket=&key=` diagnostic endpoint** to localize the
+  residual issue #37 read-after-write miss on a large cluster. From the responding
+  pod's own view it returns the key's `owner`, the data `holders`, where a request
+  `would_proxy_to`, and whether this pod holds the key's metadata/data locally
+  (`meta_present_local`, `data_present_local`), plus the pod's `ring_members`.
+  `curl` it against every pod for the same key: if they disagree on `owner`, the
+  placement ring is inconsistent across pods (the miss cause); if they agree but the
+  owner's `data_present_local` is false, it's data placement; if only
+  `meta_present_local` lags, it's replication. Read-only and gated by the cluster
+  secret (`X-Cluster-Secret`) when one is configured, since it is served on the
+  public S3 port. On a healthy cluster every pod agrees on the owner, metadata is
+  present everywhere, and data is present only on the owner.
+
 ## [4.4.32] - 2026-07-20
 ### Fixed
 - **Cluster reads are no longer served by a node that holds no data** (issue #37).
@@ -936,7 +951,8 @@ engines) plus an audit of the high-risk packages. Every fix has a regression tes
   dashboard, CLI, versioning, WORM, notifications, full-text search, FUSE mount,
   and multi-platform release binaries + Docker images.
 
-[Unreleased]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.32...HEAD
+[Unreleased]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.33...HEAD
+[4.4.33]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.32...v4.4.33
 [4.4.32]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.31...v4.4.32
 [4.4.31]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.30...v4.4.31
 [4.4.30]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.29...v4.4.30
