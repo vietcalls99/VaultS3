@@ -6,12 +6,21 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"net/http/httputil"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
 )
+
+// traceForward, when set via VAULTS3_TRACE_FORWARD=1, makes every proxied request
+// log a latency breakdown of the upstream hop (DNS, connect, connection reuse,
+// time-to-first-byte). It is off by default (zero overhead) and exists to diagnose
+// where a large fixed GET TTFB comes from in a real deployment: an extra pod hop, a
+// slow DNS lookup (e.g. k8s ndots search), or a cold connection setup (issue #38).
+var traceForward = os.Getenv("VAULTS3_TRACE_FORWARD") == "1"
 
 // Proxy handles forwarding S3 requests to the correct node in the cluster
 // based on the hash ring placement.
@@ -161,7 +170,41 @@ func (p *Proxy) ForwardRequest(w http.ResponseWriter, r *http.Request, targetNod
 		"addr", addr,
 	)
 
+	if traceForward {
+		r = traceForwardRequest(r, targetNodeID, addr)
+	}
+
 	proxy.ServeHTTP(w, r)
+}
+
+// traceForwardRequest attaches an httptrace to the upstream request that logs a
+// per-hop latency breakdown once the first response byte arrives. This isolates the
+// cost of the extra pod hop (issue #38): DNS resolution, TCP connect, whether the
+// connection was reused (keep-alive working), and upstream time-to-first-byte.
+func traceForwardRequest(r *http.Request, targetNodeID, addr string) *http.Request {
+	start := time.Now()
+	var dnsStart, connectStart time.Time
+	var dnsDur, connectDur time.Duration
+	var reused bool
+	trace := &httptrace.ClientTrace{
+		DNSStart:     func(httptrace.DNSStartInfo) { dnsStart = time.Now() },
+		DNSDone:      func(httptrace.DNSDoneInfo) { dnsDur = time.Since(dnsStart) },
+		ConnectStart: func(string, string) { connectStart = time.Now() },
+		ConnectDone:  func(string, string, error) { connectDur = time.Since(connectStart) },
+		GotConn:      func(info httptrace.GotConnInfo) { reused = info.Reused },
+		GotFirstResponseByte: func() {
+			slog.Info("proxy: forward hop timing",
+				"to", targetNodeID,
+				"addr", addr,
+				"path", r.URL.Path,
+				"reused_conn", reused,
+				"dns_ms", dnsDur.Milliseconds(),
+				"connect_ms", connectDur.Milliseconds(),
+				"ttfb_ms", time.Since(start).Milliseconds(),
+			)
+		},
+	}
+	return r.WithContext(httptrace.WithClientTrace(r.Context(), trace))
 }
 
 // IsProxied checks if a request was already proxied from another node.

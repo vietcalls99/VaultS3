@@ -6,6 +6,21 @@ semantic-ish versioning via git tags (`vMAJOR.MINOR.PATCH`).
 
 ## [Unreleased]
 
+## [4.4.30] - 2026-07-20
+### Added
+- **Opt-in per-hop latency tracing for cluster reads** (`VAULTS3_TRACE_FORWARD=1`),
+  to diagnose issue #38 (a large fixed GET time-to-first-byte in some clustered
+  deployments). When enabled, every proxied request logs an `httptrace` breakdown of
+  the upstream hop — DNS resolution time, TCP connect time, whether the keep-alive
+  connection was reused, and upstream time-to-first-byte — so the ~fixed overhead can
+  be attributed to the extra pod hop, a slow DNS lookup (e.g. Kubernetes `ndots`
+  search expansion), a cold connection setup, or the owner's disk read. Off by
+  default with zero overhead. The forward path itself measures ~2ms end-to-end
+  (owner and forwarded reads alike) on a local multi-node cluster, so the fixed cost
+  reported in #38 originates in the deployment environment, not the request path;
+  this trace pinpoints where. Keep-alive to the owner is reused across requests once
+  a response body is fully read.
+
 ## [4.4.29] - 2026-07-20
 ### Fixed
 - **Cluster read-your-writes no longer depends on an inter-node RPC** (issue #37,
@@ -887,7 +902,8 @@ engines) plus an audit of the high-risk packages. Every fix has a regression tes
   dashboard, CLI, versioning, WORM, notifications, full-text search, FUSE mount,
   and multi-platform release binaries + Docker images.
 
-[Unreleased]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.29...HEAD
+[Unreleased]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.30...HEAD
+[4.4.30]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.29...v4.4.30
 [4.4.29]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.28...v4.4.29
 [4.4.28]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.27...v4.4.28
 [4.4.27]: https://github.com/Kodiqa-Solutions/VaultS3/compare/v4.4.26...v4.4.27
